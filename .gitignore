@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# Loom dev client working directory (worlds, options, logs)
+run/
+# Written by the logger during unit tests
+logs/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# OS
+.DS_Store
+Thumbs.db

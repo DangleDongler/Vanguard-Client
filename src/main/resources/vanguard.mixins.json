@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.vanguard.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "KeyboardHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

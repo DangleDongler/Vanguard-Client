@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "vanguard",
+  "version": "${version}",
+  "name": "Vanguard",
+  "description": "Utility client for anarchy servers.",
+  "authors": [
+    "DangleDongler"
+  ],
+  "contact": {
+    "sources": "https://github.com/DangleDongler/Vanguard-Client"
+  },
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.vanguard.Vanguard"
+    ]
+  },
+  "mixins": [
+    "vanguard.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader}",
+    "minecraft": "~${minecraft}",
+    "java": ">=${jdk}",
+    "fabric-resource-loader-v1": "*"
+  },
+  "accessWidener": "vanguard.classtweaker"
+}
