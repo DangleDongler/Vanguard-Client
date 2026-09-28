@@ -2,7 +2,9 @@
 # Fabric (https://fabricmc.net/develop)
 jdk = "21"
 minecraft = "1.21.11"
-fabric-loader = "0.19.5"
+# The oldest loader the bundled Fabric API modules accept. The mod is compiled against it and
+# fabric.mod.json requires at least this version, so any newer loader works too.
+fabric-loader = "0.17.3"
 fabric-api = "0.141.6+1.21.11"
 
 # Testing

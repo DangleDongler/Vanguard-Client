@@ -49,7 +49,7 @@ Starting at 0/0 (yaw/pitch) with a pig about 34 degrees to the side, the view ea
 
 ## Installing
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer for Minecraft 1.21.11.
+1. Install [Fabric Loader](https://fabricmc.net/use/) 0.17.3 or newer for Minecraft 1.21.11.
 2. Put `vanguard-0.1.0+1.21.11.jar` in your `.minecraft/mods` folder. Fabric API isn't required;
    the two modules Vanguard needs are bundled inside the jar.
 3. Launch the Fabric 1.21.11 profile and press Right Shift in game.
