@@ -4,6 +4,7 @@ import dev.vanguard.module.modules.client.ClickGuiModule;
 import dev.vanguard.module.modules.combat.AutoCrystal;
 import dev.vanguard.module.modules.combat.AutoTotem;
 import dev.vanguard.module.modules.combat.AimAssist;
+import dev.vanguard.module.modules.combat.ShieldBreaker;
 import dev.vanguard.module.modules.combat.Surround;
 import dev.vanguard.module.modules.combat.TriggerBot;
 import dev.vanguard.module.modules.misc.AutoReconnect;
@@ -35,6 +36,7 @@ public final class ModuleManager {
         register(new AutoCrystal());
         register(new AimAssist());
         register(new TriggerBot());
+        register(new ShieldBreaker());
         register(new AutoTotem());
         register(new Surround());
 

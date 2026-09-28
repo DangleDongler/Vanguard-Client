@@ -19,7 +19,7 @@ The foundation and the **ClickGUI** are done:
 - Accent color or rainbow, background blur and dim, adjustable animation speed, hover descriptions
 - A module/setting framework and a JSON config (`.minecraft/vanguard/config.json`), which also remembers open tabs and expanded modules
 
-AimAssist and TriggerBot work. The other combat, movement and render modules are **placeholders**: they declare their settings so the GUI has real content, but they don't do anything yet.
+AimAssist, TriggerBot and ShieldBreaker work. The other combat, movement and render modules are **placeholders**: they declare their settings so the GUI has real content, but they don't do anything yet.
 
 ## Aim Assist
 
@@ -97,6 +97,43 @@ off a zombie's knockback without jumping, and hit a walking zombie at the edge o
 swing and hurt timing was tested against a zombie, including swings that missed. Against players
 it is only reasoned from the code, as is Skip Shields.
 
+## Shield Breaker
+
+Breaks raised shields with an axe from your hotbar, then switches back to what you were holding.
+
+Settings (Combat tab):
+
+- Automatic - breaks a raised shield by itself as soon as your crosshair is on it. Off: only when
+  you attack (your own clicks, or TriggerBot's).
+- Swap Back - switch back to what you were holding right after the hit.
+
+How shields work in 1.21.11, from the game code (`Shields`):
+
+- A shield only blocks once it has been up for 5 ticks, and only hits from within 90 degrees of
+  where the holder's head is facing.
+- A blocked hit from any axe puts all of the holder's shields on a 5 second (100 tick) cooldown and
+  lowers them. It needs no charge, has no randomness, and works even while they're still immune
+  from a previous hit.
+
+So it breaks the shield the moment it becomes active. Any hit resets your charge anyway, so that's
+the fastest way to your next full-strength hit (12 ticks later with a sword, well inside the 100
+tick window). It only swaps when the server would really block you. Before the shield is fully up,
+or from behind, your normal hit lands, so it doesn't swap. It picks the hotbar axe with the most
+durability left, waits for the result before retrying the same player, and doesn't undo a slot
+change you made yourself.
+
+The axe is selected right before the attack is sent, the same order the game uses when you press a
+hotbar key and click in the same tick. The slot comes back on the next tick. Both your client and
+the server see the item change, so your charge stays in sync with the server's.
+
+Tested against a Carpet fake player holding a shield up continuously, in a production Fabric
+install (loader 0.18.4). The server saw each break as an iron axe hit that the shield blocked, which
+then disabled it. The bot re-raised it every 105 ticks (the 100 tick cooldown plus the 5 tick
+delay), and it was broken again straight away. Between breaks, TriggerBot's sword hits landed:
+136 damage in 15 seconds against a shield that was always being raised. No swaps happen from behind
+the shield, with no axe in the hotbar, or while idle with Automatic off. With it off, one click on
+the shield became an axe hit that broke it.
+
 ## Installing
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) 0.17.3 or newer for Minecraft 1.21.11.
@@ -135,13 +172,15 @@ src/main/java/dev/vanguard/
   module/                    Module, Category, ModuleManager, module classes
   setting/                   Bool, Number, Enum, Color and Keybind settings
   module/modules/combat/     AimAssist, TriggerBot + placeholders
-  util/                      aim math (RotationUtil, AimSpring), crit timing, server sprint tracking
+  util/                      aim math (RotationUtil, AimSpring), crit timing, server sprint tracking,
+                             crosshair picking with server positions, shield rules
   config/                    JSON persistence
   gui/render/                Render2D, the shape pipeline and shader glue, icons, colors
   gui/anim/                  time-based animations and easing curves
   gui/clickgui/              screen, sidebar, panels, module rows, search, theme
   gui/clickgui/widget/       one widget per setting type
-  mixin/                     keyboard hook for binds; per-frame combat hook; attack hook and accessors
+  mixin/                     keyboard hook for binds; per-frame combat hook; attack, tick and packet
+                             hooks; accessors
 src/main/resources/assets/vanguard/
   shaders/core/shape.*       anti-aliased rounded shapes and soft shadows
   font/                      Inter (SIL OFL 1.1, see inter-license.txt)

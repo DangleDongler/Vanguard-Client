@@ -4,6 +4,7 @@ import dev.vanguard.config.ConfigManager;
 import dev.vanguard.gui.clickgui.ClickGuiScreen;
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.combat.AimAssist;
+import dev.vanguard.module.modules.combat.ShieldBreaker;
 import dev.vanguard.module.modules.combat.TriggerBot;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
@@ -22,6 +23,7 @@ public final class Vanguard implements ClientModInitializer {
     private ClickGuiScreen clickGui;
     private AimAssist aimAssist;
     private TriggerBot triggerBot;
+    private ShieldBreaker shieldBreaker;
 
     public static Vanguard get() {
         return instance;
@@ -39,6 +41,7 @@ public final class Vanguard implements ClientModInitializer {
         modules.init();
         aimAssist = modules.get(AimAssist.class);
         triggerBot = modules.get(TriggerBot.class);
+        shieldBreaker = modules.get(ShieldBreaker.class);
 
         config = new ConfigManager(FabricLoader.getInstance().getGameDir().resolve(MOD_ID), modules);
         config.load();
@@ -59,6 +62,11 @@ public final class Vanguard implements ClientModInitializer {
     /** Cached for the per-frame and per-attack hooks. Null until {@link #onInitializeClient()} runs. */
     public TriggerBot triggerBot() {
         return triggerBot;
+    }
+
+    /** Cached for the per-frame, per-attack and per-tick hooks. Null until {@link #onInitializeClient()} runs. */
+    public ShieldBreaker shieldBreaker() {
+        return shieldBreaker;
     }
 
     public ConfigManager config() {

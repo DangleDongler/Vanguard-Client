@@ -7,25 +7,24 @@ import dev.vanguard.module.Module;
 import dev.vanguard.setting.BoolSetting;
 import dev.vanguard.setting.EnumSetting;
 import dev.vanguard.setting.NumberSetting;
+import dev.vanguard.util.Crosshair;
 import dev.vanguard.util.FallTiming;
 import dev.vanguard.util.ServerSprintTracker;
+import dev.vanguard.util.Shields;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.effect.MobEffects;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.AttackRange;
-import net.minecraft.world.item.component.Weapon;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -76,7 +75,7 @@ public final class TriggerBot extends Module {
     public final BoolSetting serverPosition = bool("Server Position", "Also aims at where the server says the target is right now. Your game draws them a little behind that, so first hits land sooner.", true);
     public final BoolSetting hitSelect = bool("Hit Select", "In ground trades, waits for the opponent to swing first (hit or miss), then hits back instantly. Hits anyway after a short wait.", false);
     public final BoolSetting weaponsOnly = bool("Weapons Only", "Only attack while holding a sword, axe, mace, spear or trident.", true);
-    public final BoolSetting skipShields = bool("Skip Shields", "Don't waste a hit on a player blocking with a shield. Axes still hit, to disable it.", true);
+    public final BoolSetting skipShields = bool("Skip Shields", "Don't waste a hit on a player blocking with a shield. Axes still hit, to disable it, and ShieldBreaker swaps to one for you.", true);
     public final BoolSetting players = bool("Players", "Attack players.", true);
     public final BoolSetting mobs = bool("Mobs", "Attack mobs and animals.", false);
 
@@ -93,8 +92,6 @@ public final class TriggerBot extends Module {
     private static final long HIT_SELECT_MAX_HOLD_NANOS = 400_000_000L;
     /** How close an opponent must be to hit you back, for hit select to be worth it. */
     private static final double OPPONENT_REACH = 3.2;
-    /** Beyond this gap between drawn and server position, the server position is treated as stale. */
-    private static final double SERVER_POSITION_DRIFT = 4.0;
 
     private final ServerSprintTracker serverSprint = new ServerSprintTracker();
     private LocalPlayer trackedPlayer;
@@ -145,26 +142,16 @@ public final class TriggerBot extends Module {
         if (player.getAttackStrengthScale(0.5f) < FULL_CHARGE || player.cannotAttackWithItem(held, 0)) return;
 
         // Re-check the crosshair now: the mouse and aim assist may have moved it this frame.
-        float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
-        mc.gameRenderer.pick(partialTick);
-        Vec3 eye = player.getEyePosition(partialTick);
         double reach = reach(player, held);
-        EntityHitResult hit = mc.hitResult instanceof EntityHitResult entityHit
-            && entityHit.getEntity() instanceof LivingEntity living && isValidTarget(player, living) ? entityHit : null;
-        if (serverPosition.isOn()) {
-            EntityHitResult atServerPosition = pickServerPosition(mc, player, eye, reach, hit);
-            if (atServerPosition != null) {
-                // Point the game's own attack at it, exactly as if the crosshair pick had found it.
-                hit = atServerPosition;
-                mc.hitResult = hit;
-                mc.crosshairPickEntity = hit.getEntity();
-            }
-        }
+        EntityHitResult hit = Crosshair.pick(mc, player, reach, living -> isValidTarget(player, living), serverPosition.isOn());
         if (hit == null) {
             resetWaits();
             return;
         }
+        Crosshair.aimAt(mc, hit);
         LivingEntity target = (LivingEntity) hit.getEntity();
+        float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+        Vec3 eye = player.getEyePosition(partialTick);
 
         double hitRange = reach * spacing.get() / 100.0;
         if (eye.distanceTo(hit.getLocation()) > hitRange + 1.0e-4) {
@@ -174,7 +161,7 @@ public final class TriggerBot extends Module {
         AttackRange weaponRange = held.get(DataComponents.ATTACK_RANGE);
         if (weaponRange != null && !weaponRange.isInRange(player, hit.getLocation())) return;
 
-        if (skipShields.isOn() && shieldBlocks(player, target, held)) return;
+        if (skipShields.isOn() && Shields.wouldBlock(target, player.position()) && !Shields.disablesShields(held)) return;
         // Fast items can re-hit before the target's damage immunity wears off; wait it out.
         if (player.getCurrentItemAttackStrengthDelay() < 10f && target.hurtTime > 0) return;
 
@@ -206,49 +193,6 @@ public final class TriggerBot extends Module {
         serverSprint.observeSent(((LocalPlayerAccessor) player).vanguard$wasSprinting());
         if (player.hurtTime > lastHurtTime) lastHurtNanos = now;
         lastHurtTime = player.hurtTime;
-    }
-
-    /**
-     * Checks the crosshair against each nearby target's latest server position. Returns a hit only if
-     * it's closer than what the normal crosshair pick found (or that pick found nothing), and not
-     * behind a block.
-     */
-    private EntityHitResult pickServerPosition(Minecraft mc, LocalPlayer player, Vec3 eye, double reach, EntityHitResult drawnHit) {
-        Vec3 look = Vec3.directionFromRotation(player.getXRot(), player.getYRot());
-        double limit = reach;
-        if (drawnHit != null) limit = Math.min(limit, eye.distanceTo(drawnHit.getLocation()));
-        if (mc.hitResult != null && mc.hitResult.getType() == HitResult.Type.BLOCK) {
-            limit = Math.min(limit, eye.distanceTo(mc.hitResult.getLocation()));
-        }
-        Vec3 end = eye.add(look.scale(limit));
-        AABB search = new AABB(eye, end).inflate(SERVER_POSITION_DRIFT + 1.0);
-
-        EntityHitResult best = null;
-        double bestDistance = limit;
-        for (Entity entity : mc.level.getEntities(player, search)) {
-            if (!(entity instanceof LivingEntity living) || !isValidTarget(player, living)) continue;
-            AABB box = serverBox(living);
-            if (box == null) continue;
-            Vec3 point = box.contains(eye) ? eye : box.clip(eye, end).orElse(null);
-            if (point == null) continue;
-            double distance = eye.distanceTo(point);
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                best = new EntityHitResult(living, point);
-            }
-        }
-        return best;
-    }
-
-    /**
-     * The target's hitbox at the latest position the server sent, or null if that looks stale (a
-     * teleport doesn't update it, so a big gap means it can't be trusted).
-     */
-    private static AABB serverBox(LivingEntity entity) {
-        Vec3 server = entity.getPositionCodec().getBase();
-        Vec3 offset = server.subtract(entity.position());
-        if (offset.lengthSqr() > SERVER_POSITION_DRIFT * SERVER_POSITION_DRIFT) return null;
-        return entity.getBoundingBox().move(offset);
     }
 
     /**
@@ -337,20 +281,6 @@ public final class TriggerBot extends Module {
     private static double reach(LocalPlayer player, ItemStack held) {
         AttackRange weaponRange = held.get(DataComponents.ATTACK_RANGE);
         return weaponRange != null ? weaponRange.effectiveMaxRange(player) + weaponRange.hitboxMargin() : player.entityInteractionRange();
-    }
-
-    /**
-     * Whether the target's shield would block this hit. Shields cover 90 degrees either side of where
-     * the holder is looking. Axes are allowed through, since their hit disables the shield.
-     */
-    private static boolean shieldBlocks(LocalPlayer player, LivingEntity target, ItemStack held) {
-        if (!target.isBlocking()) return false;
-        Weapon weapon = held.get(DataComponents.WEAPON);
-        if (weapon != null && weapon.disableBlockingForSeconds() > 0) return false;
-        Vec3 toAttacker = player.position().subtract(target.position());
-        toAttacker = new Vec3(toAttacker.x, 0, toAttacker.z).normalize();
-        Vec3 facing = Vec3.directionFromRotation(0f, target.getYHeadRot());
-        return Math.acos(Math.max(-1.0, Math.min(1.0, toAttacker.dot(facing)))) <= Math.PI / 2;
     }
 
     private static boolean isWeapon(ItemStack stack) {
