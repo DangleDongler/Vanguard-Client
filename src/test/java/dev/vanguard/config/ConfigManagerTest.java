@@ -83,12 +83,12 @@ class ConfigManagerTest {
         Files.writeString(dir.resolve("config.json"), """
             {"modules": {
               "AutoCrystal": {"enabled": "maybe", "settings": {"Place Range": "far"}},
-              "KillAura": {"settings": {"Range": 3.0}}
+              "AutoTotem": {"settings": {"Health": 12.0}}
             }}
             """);
         ModuleManager modules = modules();
         new ConfigManager(dir, modules).load();
         assertEquals(4.5, modules.get(AutoCrystal.class).placeRange.get());
-        assertEquals(3.0, modules.get(dev.vanguard.module.modules.combat.KillAura.class).range.get());
+        assertEquals(12.0, modules.get(dev.vanguard.module.modules.combat.AutoTotem.class).health.get());
     }
 }

@@ -3,6 +3,7 @@
   "package": "dev.vanguard.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "EntityTurnMixin",
     "KeyboardHandlerMixin"
   ],
   "injectors": {

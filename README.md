@@ -21,6 +21,32 @@ The foundation and the **ClickGUI** are done:
 
 The combat, movement and render modules are **placeholders**: they declare their settings so the GUI has real content, but they don't do anything yet.
 
+## Aim Assist
+
+The first fully working module. It steers the real camera toward the best target every frame
+(like console aim assist) instead of snapping, so you keep control while it helps. It hooks the
+player's own look rotation (Entity#turn), so the assist is visible on screen and flows with your
+mouse rather than sending separate rotation packets.
+
+Settings (Combat tab):
+
+- Target - how to pick between targets: Crosshair, Distance, Health, or Smart (a weighted blend).
+- Aim Point - Eyes, Body, or Nearest (tracks the closest part of the hitbox).
+- Range / FOV - only assist within this distance and this cone of your crosshair.
+- Players / Hostiles / Passives - which entity kinds to help against.
+- Horizontal / Vertical - pull strength per axis (frame-rate independent).
+- Max Speed - caps how fast the camera turns, so it stays human-plausible.
+- Deadzone - stops assisting once you're this close, leaving micro-aim to you.
+- Slowdown - reduces your own mouse sensitivity near a target (aim magnetism).
+- Prediction - leads a strafing target by its smoothed velocity.
+- Jitter / Reaction - smoothed randomness and a delay before locking a new target.
+- While Attacking - only assist while holding attack.
+- Require Visible - ignore targets you can't see (line-of-sight raycast).
+
+Verified in the live 26.2 client: the view is driven from a 45 degree offset onto the target and
+eases in (measured angle-to-target 9.5 -> 3.9 -> 1.7 degrees over successive frames), stops at the
+deadzone, and releases targets outside range/FOV.
+
 ## Controls
 
 | Action | Input |
@@ -53,12 +79,14 @@ src/main/java/dev/vanguard/
   Vanguard.java              entrypoint and singletons
   module/                    Module, Category, ModuleManager, module classes
   setting/                   Bool, Number, Enum, Color and Keybind settings
+  module/modules/combat/     AimAssist (first working module) + placeholders
+  util/RotationUtil          aim math: yaw/pitch to a point, closest hitbox point
   config/                    JSON persistence
   gui/render/                Render2D, the shape pipeline and shader glue, icons, colors
   gui/anim/                  time-based animations and easing curves
   gui/clickgui/              screen, sidebar, panels, module rows, search, theme
   gui/clickgui/widget/       one widget per setting type
-  mixin/                     keyboard hook for module binds
+  mixin/                     keyboard hook for binds; camera-turn hook for aim assist
 src/main/resources/assets/vanguard/
   shaders/core/shape.*       anti-aliased rounded shapes and soft shadows
   font/                      Inter (SIL OFL 1.1, see inter-license.txt)

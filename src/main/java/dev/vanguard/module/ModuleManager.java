@@ -3,7 +3,7 @@ package dev.vanguard.module;
 import dev.vanguard.module.modules.client.ClickGuiModule;
 import dev.vanguard.module.modules.combat.AutoCrystal;
 import dev.vanguard.module.modules.combat.AutoTotem;
-import dev.vanguard.module.modules.combat.KillAura;
+import dev.vanguard.module.modules.combat.AimAssist;
 import dev.vanguard.module.modules.combat.Surround;
 import dev.vanguard.module.modules.misc.AutoReconnect;
 import dev.vanguard.module.modules.misc.FakePlayer;
@@ -32,7 +32,7 @@ public final class ModuleManager {
 
     public void init() {
         register(new AutoCrystal());
-        register(new KillAura());
+        register(new AimAssist());
         register(new AutoTotem());
         register(new Surround());
 
