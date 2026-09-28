@@ -5,9 +5,13 @@ import dev.vanguard.module.modules.client.ClickGuiModule;
 
 /** ClickGUI palette. Fixed neutrals plus an accent resolved once per frame. */
 public final class Theme {
-    public static final int PANEL = 0xF20F0F14;
-    public static final int HEADER = 0xFF15151C;
-    public static final int SETTINGS_BG = 0xFF0B0B0F;
+    public static final int SIDEBAR = 0xF40C0B11;
+    public static final int PANEL = 0xF2111017;
+    /** Inset card behind a module's settings. */
+    public static final int CARD = 0xFF0A090E;
+    public static final int TAB_OPEN = 0xFF1A1823;
+    public static final int SEPARATOR = 0x12FFFFFF;
+    public static final int ONLINE = 0xFF3DDC84;
     public static final int OUTLINE = 0x16FFFFFF;
     public static final int SHADOW = 0x99000000;
     public static final int HOVER = 0x0CFFFFFF;
@@ -16,7 +20,7 @@ public final class Theme {
     public static final int TEXT_DIM = 0xFF9A9AA8;
     public static final int TEXT_MUTED = 0xFF5F5F6D;
     public static final int TRACK = 0xFF272731;
-    public static final int FIELD = 0xFF17171F;
+    public static final int FIELD = 0xFF18161F;
     public static final int KNOB = 0xFFF4F4F8;
 
     private int accent = 0xFF7B61FF;

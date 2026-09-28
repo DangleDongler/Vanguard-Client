@@ -9,21 +9,31 @@ import dev.vanguard.gui.render.Colors;
 import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.module.Module;
 import dev.vanguard.setting.Setting;
+import dev.vanguard.util.Keys;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** A module row: left-click toggles, right-click expands its settings. */
+/**
+ * A module row: name, bound key and an on/off switch. Clicking the row toggles the module;
+ * the arrow that appears on hover (or a right-click) opens its settings in an inset card.
+ */
 final class ModuleButton {
-    static final float HEIGHT = 15f;
-    private static final float SETTINGS_PAD = 3f;
+    static final float HEIGHT = 17f;
+    private static final float INSET = 5f;
+    private static final float SWITCH_W = 15f;
+    private static final float SWITCH_H = 8f;
+    private static final float ARROW_SIZE = 11f;
+    private static final float CARD_PAD = 3f;
+    private static final float CARD_GAP = 3f;
 
     private final Module module;
     private final List<Widget> widgets = new ArrayList<>();
     private final Animation enabled;
     private final Animation hover = new Animation(0, 140, Easing.LINEAR);
+    private final Animation arrowHover = new Animation(0, 120, Easing.LINEAR);
     private final Animation expand = new Animation(0, 260, Easing.QUINT_OUT);
     private final Animation searchFade = new Animation(1, 180, Easing.CUBIC_OUT);
     private boolean expanded;
@@ -34,7 +44,7 @@ final class ModuleButton {
         this.module = module;
         for (Setting<?> setting : module.settings()) widgets.add(Widgets.create(setting));
         widgets.add(Widgets.create(module.bind()));
-        this.enabled = new Animation(module.isEnabled() ? 1 : 0, 220, Easing.CUBIC_OUT);
+        this.enabled = new Animation(module.isEnabled() ? 1 : 0, 200, Easing.CUBIC_OUT);
     }
 
     Module module() {
@@ -53,14 +63,13 @@ final class ModuleButton {
         return query.isEmpty() || module.name().toLowerCase(Locale.ROOT).contains(query);
     }
 
-    /** Fades rows in and out as the search filter changes; returns the current visibility (0..1). */
-    float updateSearch(String query) {
+    /** Fades rows in and out as the search filter changes. */
+    void updateSearch(String query) {
         searchFade.animateTo(matches(query) ? 1 : 0);
-        return searchFade.get();
     }
 
     private float settingsHeight() {
-        float h = SETTINGS_PAD * 2;
+        float h = CARD_PAD * 2;
         for (Widget widget : widgets) {
             if (widget.isVisible()) h += widget.height();
         }
@@ -68,7 +77,15 @@ final class ModuleButton {
     }
 
     float height() {
-        return (HEIGHT + settingsHeight() * expand.get()) * searchFade.get();
+        return (HEIGHT + (settingsHeight() + CARD_GAP) * expand.get()) * searchFade.get();
+    }
+
+    private float switchX() {
+        return x + width - 11f - SWITCH_W;
+    }
+
+    private float arrowX() {
+        return switchX() - 4f - ARROW_SIZE;
     }
 
     void layout(float x, float y, float width) {
@@ -89,64 +106,91 @@ final class ModuleButton {
         enabled.animateTo(module.isEnabled() ? 1 : 0);
         expand.animateTo(expanded ? 1 : 0);
         boolean hovered = ctx.hovered(x, y, width, HEIGHT);
+        boolean overArrow = hovered && ctx.hovered(arrowX(), y, ARROW_SIZE, HEIGHT);
         hover.animateTo(hovered ? 1 : 0);
+        arrowHover.animateTo(overArrow ? 1 : 0);
         if (hovered) {
-            ctx.tooltip(module.description());
+            ctx.tooltip(overArrow ? "Settings" : module.description());
             ctx.cursor(CursorTypes.POINTING_HAND);
         }
         float on = enabled.get();
         float h = hover.get();
-
-        if (on > 0.001f) {
-            r.gradientH(x, y, width, HEIGHT, theme.accent(Math.round(56 * on)), Colors.withAlpha(theme.accentSecondary(), Math.round(10 * on)));
-            float barH = (HEIGHT - 6f) * on;
-            r.roundedRect(x + 2f, y + (HEIGHT - barH) / 2f, 2f, barH, 1f, theme.accent());
-        }
-        r.rect(x, y, width, HEIGHT, Colors.fade(Theme.HOVER, h));
-
-        int nameColor = Colors.lerp(Colors.lerp(Theme.TEXT_DIM, 0xFFC8C8D2, h), Theme.TEXT, on);
-        r.text(r.ellipsize(module.name(), width - 28f, false), x + 8f + 1.5f * on, Widgets.textY(y, HEIGHT), nameColor);
-
         float e = expand.get();
-        r.chevron(x + width - 9f, y + HEIGHT / 2f, 4.5f, (float) (Math.PI / 2 * e), 1.1f,
-            Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT_DIM, Math.max(h, e)));
 
-        if (e > 0.001f) {
-            float settingsY = y + HEIGHT;
-            float visible = settingsHeight() * e;
-            r.pushScissor(x, settingsY, width, visible);
-            r.rect(x, settingsY, width, visible, Theme.SETTINGS_BG);
-            r.gradientV(x, settingsY, width, 4f, 0x40000000, 0x00000000);
-            r.rect(x + 3f, settingsY + SETTINGS_PAD, 1f, Math.max(0, visible - SETTINGS_PAD * 2), theme.accent(Math.round(90 * e)));
-            r.pushAlpha(Math.min(1f, e * 1.4f));
+        r.roundedRect(x + INSET, y + 1f, width - INSET * 2, HEIGHT - 2f, 4f, Colors.fade(Theme.HOVER, Math.max(h, e * 0.6f)));
 
-            // Widgets below the clipped area still get laid out, but must not claim hover.
-            float clipBottom = settingsY + visible;
-            float realMouseY = ctx.mouseY;
-            float wy = settingsY + SETTINGS_PAD;
-            for (Widget widget : widgets) {
-                if (!widget.isVisible()) continue;
-                if (ctx.mouseY >= clipBottom) ctx.mouseY = Float.MAX_VALUE;
-                widget.render(ctx, x + 3f, wy, width - 3f);
-                ctx.mouseY = realMouseY;
-                wy += widget.height();
-            }
+        int nameColor = Colors.lerp(Colors.lerp(Theme.TEXT_DIM, 0xFFC9C8D3, h), Theme.TEXT, on);
+        float nameRight = arrowX() - 4f;
+        if (module.bind().isBound()) {
+            String key = Keys.name(module.bind().key());
+            float keyWidth = r.smallWidth(key);
+            float badgeX = arrowX() - keyWidth - 6f;
+            r.roundedRect(badgeX - 3f, y + 4.5f, keyWidth + 6f, HEIGHT - 9f, 2.5f, Colors.fade(Theme.FIELD, 0.9f));
+            r.small(key, badgeX, r.smallY(y, HEIGHT), Theme.TEXT_MUTED);
+            nameRight = badgeX - 6f;
+        }
+        r.text(r.ellipsize(module.name(), nameRight - (x + 12f), false), x + 12f, r.textY(y, HEIGHT), nameColor);
+
+        // The settings arrow only shows while it's useful: on hover, or while open.
+        float arrowAlpha = Math.max(h, e);
+        if (arrowAlpha > 0.01f) {
+            float ax = arrowX() + ARROW_SIZE / 2f, ay = y + HEIGHT / 2f;
+            r.pushAlpha(arrowAlpha);
+            r.circle(ax, ay, ARROW_SIZE / 2f, Colors.withAlpha(0xFFFFFF, Math.round(26 * arrowHover.get())));
+            r.chevron(ax, ay, 4.5f, (float) (Math.PI / 2 * e), 1.1f, Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT, Math.max(arrowHover.get(), e)));
             r.popAlpha();
-            r.popScissor();
+        }
+
+        float sx = switchX(), sy = y + (HEIGHT - SWITCH_H) / 2f;
+        r.roundedRect(sx, sy, SWITCH_W, SWITCH_H, SWITCH_H / 2f, Colors.lerp(Theme.TRACK, theme.accent(), on));
+        if (on > 0.01f) r.shadow(sx, sy, SWITCH_W, SWITCH_H, SWITCH_H / 2f, 4f, theme.accent(Math.round(60 * on)));
+        r.circle(sx + SWITCH_H / 2f + (SWITCH_W - SWITCH_H) * on, sy + SWITCH_H / 2f, SWITCH_H / 2f - 1.5f,
+            Colors.lerp(0xFFB9B8C6, Theme.KNOB, on));
+
+        if (e > 0.001f) drawSettings(ctx, e);
+        r.popAlpha();
+    }
+
+    private void drawSettings(GuiContext ctx, float progress) {
+        Render2D r = ctx.render;
+        float cardX = x + INSET, cardY = y + HEIGHT, cardW = width - INSET * 2;
+        float visible = settingsHeight() * progress;
+        r.pushScissor(cardX, cardY, cardW, visible);
+        r.roundedRect(cardX, cardY, cardW, settingsHeight(), 5f, Theme.CARD);
+        r.roundedOutline(cardX, cardY, cardW, settingsHeight(), 5f, 0.6f, Theme.SEPARATOR);
+        r.pushAlpha(Math.min(1f, progress * 1.4f));
+
+        // Widgets below the clipped area still get laid out, but must not claim hover.
+        float clipBottom = cardY + visible;
+        float realMouseY = ctx.mouseY;
+        float wy = cardY + CARD_PAD;
+        for (Widget widget : widgets) {
+            if (!widget.isVisible()) continue;
+            if (ctx.mouseY >= clipBottom) ctx.mouseY = Float.MAX_VALUE;
+            widget.render(ctx, cardX, wy, cardW);
+            ctx.mouseY = realMouseY;
+            wy += widget.height();
         }
         r.popAlpha();
+        r.popScissor();
     }
 
     boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (searchFade.target() == 0) return false;
         if (mouseX < x || mouseX >= x + width) return false;
         if (mouseY >= y && mouseY < y + HEIGHT) {
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) module.toggle();
-            else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) expanded = !expanded;
-            else return false;
+            boolean onArrow = mouseX >= arrowX() && mouseX < arrowX() + ARROW_SIZE;
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT || button == GLFW.GLFW_MOUSE_BUTTON_LEFT && onArrow) {
+                expanded = !expanded;
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                module.toggle();
+            } else {
+                return false;
+            }
             return true;
         }
-        if (!expanded || mouseY < y + HEIGHT || mouseY >= y + HEIGHT + settingsHeight() * expand.get()) return false;
+        float settingsTop = y + HEIGHT;
+        if (!expanded || mouseY < settingsTop || mouseY >= settingsTop + settingsHeight() * expand.get()) return false;
         for (Widget widget : widgets) {
             if (widget.isVisible() && widget.mouseClicked(mouseX, mouseY, button)) return true;
         }

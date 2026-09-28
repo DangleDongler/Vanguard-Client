@@ -51,13 +51,18 @@ public final class EnumWidget extends Widget {
 
         r.rect(x, y, width, ROW_HEIGHT, Colors.fade(Theme.HOVER, hover.get()));
         float textY = Widgets.textY(y, ROW_HEIGHT);
+
+        // Value in a dropdown box on the right.
         String value = EnumSetting.displayName(choice.get());
-        float chevronX = x + width - PAD_X - 2f;
-        float valueWidth = r.textWidth(value);
-        drawLabel(ctx, textY, valueWidth + 8f, Theme.TEXT);
-        r.text(value, chevronX - 6f - valueWidth, textY, ctx.theme.accent());
-        r.chevron(chevronX, y + ROW_HEIGHT / 2f, 4.5f, (float) (Math.PI / 2 * progress), 1.1f,
-            Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT_DIM, hover.get()));
+        float boxW = Math.max(40f, r.textWidth(value) + 18f), boxH = 11f;
+        float boxX = x + width - PAD_X - boxW, boxY = y + (ROW_HEIGHT - boxH) / 2f;
+        drawLabel(ctx, textY, boxW, Theme.TEXT);
+        r.roundedRect(boxX, boxY, boxW, boxH, 3.5f, Theme.FIELD);
+        r.roundedOutline(boxX, boxY, boxW, boxH, 3.5f, 0.6f,
+            Colors.lerp(Colors.lerp(Theme.SEPARATOR, Theme.OUTLINE, hover.get()), ctx.theme.accent(150), progress));
+        r.text(value, boxX + 5f, Widgets.textY(boxY, boxH), Theme.TEXT);
+        r.chevron(boxX + boxW - 6.5f, boxY + boxH / 2f, 3.6f, (float) (Math.PI / 2 - Math.PI * progress), 1f,
+            Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT_DIM, Math.max(hover.get(), progress)));
 
         if (progress <= 0.001f) return;
         float listY = y + ROW_HEIGHT;

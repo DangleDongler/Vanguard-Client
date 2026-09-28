@@ -27,10 +27,15 @@ public final class Animation {
     }
 
     public void animateTo(float target) {
+        animateTo(target, 0);
+    }
+
+    /** Like {@link #animateTo(float)}, but holds the current value for {@code delayMs} first (for staggering). */
+    public void animateTo(float target, long delayMs) {
         if (target == to) return;
         from = get();
         to = target;
-        startNanos = System.nanoTime();
+        startNanos = System.nanoTime() + delayMs * 1_000_000L;
     }
 
     /** Jumps straight to {@code value} without animating. */
@@ -45,7 +50,7 @@ public final class Animation {
 
     public float progress() {
         float elapsedMs = (System.nanoTime() - startNanos) / 1_000_000f;
-        return Math.min(1f, elapsedMs * globalSpeed / durationMs);
+        return Math.clamp(elapsedMs * globalSpeed / durationMs, 0f, 1f);
     }
 
     public boolean isDone() {

@@ -1,11 +1,12 @@
 package dev.vanguard.gui.clickgui;
 
-import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import dev.vanguard.gui.anim.Animation;
 import dev.vanguard.gui.anim.Easing;
-import dev.vanguard.gui.clickgui.widget.Widgets;
 import dev.vanguard.gui.render.Colors;
+import dev.vanguard.gui.render.Icons;
 import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.module.Category;
 import dev.vanguard.module.Module;
@@ -14,34 +15,32 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 
-/** A draggable, collapsible, scrollable column of modules for one category. */
+/**
+ * One category's modules. The screen decides where panels go; a panel only animates
+ * towards the spot it's given and in or out of existence.
+ */
 final class Panel {
-    static final float WIDTH = 120f;
-    static final float HEADER = 20f;
-    private static final float RADIUS = 6f;
-    private static final float BOTTOM_PAD = 4f;
-    private static final float SCREEN_MARGIN = 6f;
+    static final float HEADER = 24f;
+    private static final float RADIUS = 8f;
+    private static final float BOTTOM_PAD = 5f;
+    private static final float CLOSE_SIZE = 12f;
 
     private final Category category;
+    private final String title;
     private final List<ModuleButton> buttons = new ArrayList<>();
-    private final Animation open = new Animation(1, 280, Easing.QUINT_OUT);
-    private final Animation scroll = new Animation(0, 200, Easing.CUBIC_OUT);
+    /** 0 = closed, 1 = open. Drives the fade, the unroll and the space the panel takes. */
+    private final Animation presence = new Animation(0, 280, Easing.QUINT_OUT);
+    private Animation move = new Animation(1, 340, Easing.QUINT_OUT);
     private final Animation headerHover = new Animation(0, 140, Easing.LINEAR);
-    private final Animation searchDim = new Animation(1, 200, Easing.CUBIC_OUT);
+    private final Animation closeHover = new Animation(0, 120, Easing.LINEAR);
 
-    private float x;
-    private float y;
-    private boolean expanded = true;
-    private boolean dragging;
-    private float dragOffsetX;
-    private float dragOffsetY;
-    private float scrollTarget;
-    private float maxBodyHeight = Float.MAX_VALUE;
+    private float x, y, width;
+    private float fromX, fromY;
+    private int column = -1;
 
-    Panel(Category category, List<Module> modules, float x, float y) {
+    Panel(Category category, String title, List<Module> modules) {
         this.category = category;
-        this.x = x;
-        this.y = y;
+        this.title = title;
         for (Module module : modules) buttons.add(new ModuleButton(module));
     }
 
@@ -49,141 +48,150 @@ final class Panel {
         return category;
     }
 
-    void moveTo(float x, float y) {
-        this.x = x;
-        this.y = y;
+    void show(boolean shown, long delayMs) {
+        presence.animateTo(shown ? 1 : 0, delayMs);
     }
 
-    boolean isDragging() {
-        return dragging;
+    void hideInstantly() {
+        presence.snap(0);
+        column = -1;
     }
 
-    private float contentHeight() {
-        float h = BOTTOM_PAD;
+    /** 0..1 while opening or closing. */
+    float presence() {
+        return presence.get();
+    }
+
+    /** Still taking up space: open, or closing. */
+    boolean isPresent() {
+        return presence.target() > 0 || presence.get() > 0.001f;
+    }
+
+    boolean isShown() {
+        return presence.target() > 0;
+    }
+
+    int matches(String query) {
+        int count = 0;
+        for (ModuleButton button : buttons) {
+            if (button.matches(query)) count++;
+        }
+        return count;
+    }
+
+    int enabledCount() {
+        int count = 0;
+        for (ModuleButton button : buttons) {
+            if (button.module().isEnabled()) count++;
+        }
+        return count;
+    }
+
+    private float fullHeight() {
+        float h = HEADER + BOTTOM_PAD;
         for (ModuleButton button : buttons) h += button.height();
         return h;
     }
 
-    private float bodyHeight() {
-        return Math.min(contentHeight(), maxBodyHeight) * open.get();
+    /** Vertical space in the layout, shrinking to nothing while the panel closes. */
+    float layoutHeight() {
+        return fullHeight() * presence.get();
     }
 
-    /** Height with every module collapsed, used for the default layout. */
-    float collapsedHeight() {
-        return HEADER + buttons.size() * ModuleButton.HEIGHT + BOTTOM_PAD;
-    }
-
-    float totalHeight() {
-        return HEADER + bodyHeight();
+    /** Moves the panel towards a layout slot. Changing columns glides instead of jumping. */
+    void place(float targetX, float targetY, float width, int column) {
+        if (this.column == -1 || presence.get() <= 0.001f) {
+            move.snap(1);
+            fromX = targetX;
+            fromY = targetY;
+        } else if (column != this.column || width != this.width) {
+            fromX = x;
+            fromY = y;
+            move = new Animation(0, 340, Easing.QUINT_OUT);
+            move.animateTo(1);
+        }
+        this.column = column;
+        this.width = width;
+        float t = move.get();
+        x = fromX + (targetX - fromX) * t;
+        y = fromY + (targetY - fromY) * t;
     }
 
     boolean contains(double mouseX, double mouseY) {
-        return mouseX >= x && mouseX < x + WIDTH && mouseY >= y && mouseY < y + totalHeight();
+        return isShown() && mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + layoutHeight();
     }
 
-    private boolean inHeader(double mouseX, double mouseY) {
-        return mouseX >= x && mouseX < x + WIDTH && mouseY >= y && mouseY < y + HEADER;
-    }
+    void render(GuiContext ctx, String query, boolean countMatches) {
+        for (ModuleButton button : buttons) button.updateSearch(query);
+        float p = presence.get();
+        if (p <= 0.001f) return;
 
-    void render(GuiContext ctx, float screenWidth, float screenHeight, String query) {
         Render2D r = ctx.render;
         Theme theme = ctx.theme;
+        float full = fullHeight();
+        float visible = full * p;
 
-        if (dragging) {
-            x = ctx.rawMouseX - dragOffsetX;
-            y = ctx.rawMouseY - dragOffsetY;
+        r.pushAlpha(p);
+        r.shadow(x, y, width, visible, RADIUS, 14f, Theme.SHADOW);
+        r.roundedRect(x, y, width, visible, RADIUS, Theme.PANEL);
+        r.pushScissor(x, y, width, visible);
+
+        boolean headerHovered = ctx.hovered(x, y, width, HEADER);
+        headerHover.animateTo(headerHovered ? 1 : 0);
+        float closeX = x + width - 8f - CLOSE_SIZE, closeY = y + (HEADER - CLOSE_SIZE) / 2f;
+        boolean overClose = ctx.hovered(closeX, closeY, CLOSE_SIZE, CLOSE_SIZE);
+        closeHover.animateTo(overClose ? 1 : 0);
+        if (overClose) {
+            ctx.cursor(CursorTypes.POINTING_HAND);
+            ctx.tooltip("Close tab");
         }
-        clampToScreen(screenWidth, screenHeight);
-        maxBodyHeight = Math.max(40f, screenHeight - SCREEN_MARGIN - y - HEADER);
 
-        int matches = 0;
+        Icons.category(r, category, x + 15f, y + HEADER / 2f, 9f, theme.accent());
+        r.text(title, x + 25f, r.textY(y, HEADER), Theme.TEXT, true);
+
+        // Count on the right, swapped for a close button while the header is hovered.
+        float hh = headerHover.get();
+        int total = buttons.size();
+        String count = countMatches ? matches(query) + " found" : enabledCount() + "/" + total;
+        r.pushAlpha(1f - hh);
+        r.small(count, x + width - 10f - r.smallWidth(count), r.smallY(y, HEADER), Theme.TEXT_MUTED);
+        r.popAlpha();
+        if (hh > 0.01f) {
+            r.pushAlpha(hh);
+            float ch = closeHover.get();
+            r.circle(closeX + CLOSE_SIZE / 2f, closeY + CLOSE_SIZE / 2f, CLOSE_SIZE / 2f, Colors.withAlpha(0xFFFFFF, Math.round(24 * ch)));
+            Icons.close(r, closeX + CLOSE_SIZE / 2f, closeY + CLOSE_SIZE / 2f, 7f, Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT, ch));
+            r.popAlpha();
+        }
+
+        // Signature hairline: accent fading out to the right.
+        r.gradientH(x + 10f, y + HEADER - 0.6f, width - 20f, 0.6f, theme.accent(170), theme.accentSecondary() & 0x00FFFFFF);
+
+        float bodyY = y + HEADER;
+        float realMouseY = ctx.mouseY;
+        if (ctx.mouseY < bodyY || ctx.mouseY >= y + visible) ctx.mouseY = Float.MAX_VALUE;
+        float by = bodyY;
         for (ModuleButton button : buttons) {
-            button.updateSearch(query);
-            if (button.matches(query)) matches++;
+            button.render(ctx, x, by, width);
+            by += button.height();
         }
-        searchDim.animateTo(query.isEmpty() || matches > 0 ? 1f : 0.35f);
-        open.animateTo(expanded ? 1 : 0);
+        ctx.mouseY = realMouseY;
 
-        float maxScroll = Math.max(0, contentHeight() - maxBodyHeight);
-        scrollTarget = Math.clamp(scrollTarget, 0, maxScroll);
-        scroll.animateTo(scrollTarget);
-
-        float body = bodyHeight();
-        float total = HEADER + body;
-        float o = open.get();
-
-        r.pushAlpha(searchDim.get());
-        r.shadow(x, y, WIDTH, total, RADIUS, 14f, Theme.SHADOW);
-        r.roundedRect(x, y, WIDTH, total, RADIUS, Theme.PANEL);
-
-        // Header: square bottom corners while the body is showing.
-        float bottomRadius = RADIUS * (1f - Math.min(1f, o * 4f));
-        r.roundedRect(x, y, WIDTH, HEADER, RADIUS, RADIUS, bottomRadius, bottomRadius, Theme.HEADER);
-        boolean headerHovered = ctx.hovered(x, y, WIDTH, HEADER);
-        headerHover.animateTo(headerHovered || dragging ? 1 : 0);
-        if (headerHovered || dragging) ctx.cursor(dragging ? CursorTypes.RESIZE_ALL : CursorTypes.POINTING_HAND);
-        r.roundedRect(x, y, WIDTH, HEADER, RADIUS, RADIUS, bottomRadius, bottomRadius, Colors.fade(Theme.HOVER, headerHover.get()));
-
-        float titleY = Widgets.textY(y, HEADER);
-        r.roundedRect(x + 8f, y + HEADER / 2f - 3f, 2.5f, 6f, 1.25f, theme.accent());
-        r.text(category.displayName(), x + 14f, titleY, Theme.TEXT, true);
-        String count = String.valueOf(query.isEmpty() ? buttons.size() : matches);
-        r.text(count, x + WIDTH - 20f - r.textWidth(count), titleY, Theme.TEXT_MUTED);
-        r.chevron(x + WIDTH - 10f, y + HEADER / 2f, 4.5f, (float) (Math.PI / 2 * o), 1.1f,
-            Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT_DIM, headerHover.get()));
-
-        if (body > 0.5f) {
-            r.gradientH(x, y + HEADER - 0.75f, WIDTH, 0.75f, theme.accent(Math.round(200 * o)), theme.accentSecondary() & 0x00FFFFFF);
-
-            float bodyY = y + HEADER;
-            r.pushScissor(x, bodyY, WIDTH, body);
-            float realMouseY = ctx.mouseY;
-            boolean mouseInBody = ctx.mouseY >= bodyY && ctx.mouseY < bodyY + body;
-            if (!mouseInBody) ctx.mouseY = Float.MAX_VALUE;
-            float by = bodyY - scroll.get();
-            for (ModuleButton button : buttons) {
-                float h = button.height();
-                // Rows scrolled out of view are only laid out, so their click bounds stay current.
-                if (by + h >= bodyY && by <= bodyY + body) button.render(ctx, x, by, WIDTH);
-                else button.layout(x, by, WIDTH);
-                by += h;
-            }
-            ctx.mouseY = realMouseY;
-            r.popScissor();
-
-            if (maxScroll > 0) drawScrollbar(r, theme, bodyY, body, maxScroll);
-        }
-
-        r.roundedOutline(x, y, WIDTH, total, RADIUS, 0.6f, Theme.OUTLINE);
+        r.popScissor();
+        r.roundedOutline(x, y, width, visible, RADIUS, 0.6f, Theme.OUTLINE);
         r.popAlpha();
     }
 
-    private void drawScrollbar(Render2D r, Theme theme, float bodyY, float body, float maxScroll) {
-        float trackH = body - BOTTOM_PAD - 4f;
-        float thumbH = Math.max(12f, trackH * (body / (body + maxScroll)));
-        float thumbY = bodyY + 2f + (trackH - thumbH) * (scroll.get() / maxScroll);
-        r.roundedRect(x + WIDTH - 3f, thumbY, 1.5f, thumbH, 0.75f, theme.accent(110));
-    }
-
-    private void clampToScreen(float screenWidth, float screenHeight) {
-        x = Math.clamp(x, SCREEN_MARGIN - WIDTH + 30f, Math.max(SCREEN_MARGIN, screenWidth - 30f));
-        y = Math.clamp(y, SCREEN_MARGIN, Math.max(SCREEN_MARGIN, screenHeight - HEADER - SCREEN_MARGIN));
-    }
-
-    boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (inHeader(mouseX, mouseY)) {
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                dragging = true;
-                dragOffsetX = (float) mouseX - x;
-                dragOffsetY = (float) mouseY - y;
-            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                expanded = !expanded;
-            }
+    /**
+     * @param onClose called when the header's close button is clicked
+     */
+    boolean mouseClicked(double mouseX, double mouseY, int button, Runnable onClose) {
+        if (!contains(mouseX, mouseY)) return false;
+        if (mouseY < y + HEADER) {
+            float closeX = x + width - 8f - CLOSE_SIZE;
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && mouseX >= closeX && mouseX < closeX + CLOSE_SIZE) onClose.run();
             return true;
         }
-        if (!contains(mouseX, mouseY)) return false;
-        // Rows can extend past the visible body when scrolled; only the visible part is clickable.
-        if (mouseY >= y + HEADER + bodyHeight()) return true;
         for (ModuleButton moduleButton : buttons) {
             if (moduleButton.mouseClicked(mouseX, mouseY, button)) return true;
         }
@@ -191,12 +199,7 @@ final class Panel {
     }
 
     void mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) dragging = false;
         for (ModuleButton moduleButton : buttons) moduleButton.mouseReleased(mouseX, mouseY, button);
-    }
-
-    void mouseScrolled(double amount) {
-        scrollTarget -= (float) amount * 24f;
     }
 
     void clickedOutside() {
@@ -217,32 +220,19 @@ final class Panel {
         return false;
     }
 
-    JsonObject save() {
-        JsonObject json = new JsonObject();
-        json.addProperty("x", x);
-        json.addProperty("y", y);
-        json.addProperty("expanded", expanded);
-        JsonObject expandedModules = new JsonObject();
+    void saveExpanded(JsonArray into) {
         for (ModuleButton button : buttons) {
-            if (button.isExpanded()) expandedModules.addProperty(button.module().name(), true);
+            if (button.isExpanded()) into.add(button.module().name());
         }
-        json.add("expandedModules", expandedModules);
-        return json;
     }
 
-    void load(JsonObject json) {
-        try {
-            if (json.has("x")) x = json.get("x").getAsFloat();
-            if (json.has("y")) y = json.get("y").getAsFloat();
-            if (json.has("expanded")) {
-                expanded = json.get("expanded").getAsBoolean();
-                open.snap(expanded ? 1 : 0);
+    void loadExpanded(JsonArray names) {
+        for (ModuleButton button : buttons) {
+            boolean expanded = false;
+            for (JsonElement name : names) {
+                if (name.isJsonPrimitive() && name.getAsString().equals(button.module().name())) expanded = true;
             }
-            if (json.get("expandedModules") instanceof JsonObject expandedModules) {
-                for (ModuleButton button : buttons) button.setExpanded(expandedModules.has(button.module().name()));
-            }
-        } catch (RuntimeException ignored) {
-            // Malformed GUI state only costs the saved layout.
+            button.setExpanded(expanded);
         }
     }
 }

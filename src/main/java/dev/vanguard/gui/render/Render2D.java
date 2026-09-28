@@ -36,6 +36,7 @@ public final class Render2D {
     private int oversample;
     private Style regularStyle = Style.EMPTY;
     private Style boldStyle = Style.EMPTY.withBold(true);
+    private Style smallStyle = Style.EMPTY;
 
     // Shape under construction.
     private float[] vertices = new float[64 * ShapeRenderState.FLOATS_PER_VERTEX];
@@ -58,13 +59,19 @@ public final class Render2D {
             this.customFont = customFont;
             this.oversample = wantedOversample;
             if (customFont) {
-                regularStyle = Style.EMPTY.withFont(new FontDescription.Resource(dev.vanguard.Vanguard.id("inter_" + oversample)));
-                boldStyle = Style.EMPTY.withFont(new FontDescription.Resource(dev.vanguard.Vanguard.id("inter_bold_" + oversample)));
+                regularStyle = fontStyle("inter_");
+                boldStyle = fontStyle("inter_bold_");
+                smallStyle = fontStyle("inter_small_");
             } else {
                 regularStyle = Style.EMPTY;
                 boldStyle = Style.EMPTY.withBold(true);
+                smallStyle = Style.EMPTY;
             }
         }
+    }
+
+    private Style fontStyle(String prefix) {
+        return Style.EMPTY.withFont(new FontDescription.Resource(dev.vanguard.Vanguard.id(prefix + oversample)));
     }
 
     public GuiGraphicsExtractor graphics() {
@@ -90,6 +97,11 @@ public final class Render2D {
 
     private int applyAlpha(int color) {
         return Colors.fade(color, alpha);
+    }
+
+    /** {@code color} with the current alpha multiplier applied, for drawing through vanilla APIs. */
+    public int withCurrentAlpha(int color) {
+        return applyAlpha(color);
     }
 
     // ---------------------------------------------------------------- scissor
@@ -130,34 +142,57 @@ public final class Render2D {
 
     /** Rounded rectangle with individual corner radii (top-left, top-right, bottom-right, bottom-left). */
     public void roundedRect(float x, float y, float w, float h, float tl, float tr, float br, float bl, int color) {
+        roundedRect(x, y, w, h, tl, tr, br, bl, color, color);
+    }
+
+    /** Rounded rectangle filled with a vertical gradient. */
+    public void roundedGradientV(float x, float y, float w, float h, float radius, int top, int bottom) {
+        roundedRect(x, y, w, h, radius, radius, radius, radius, top, bottom);
+    }
+
+    private void roundedRect(float x, float y, float w, float h, float tl, float tr, float br, float bl, int topColor, int bottomColor) {
         if (w <= 0 || h <= 0) return;
         float limit = Math.min(w, h) / 2f;
         tl = Math.clamp(tl, 0, limit);
         tr = Math.clamp(tr, 0, limit);
         br = Math.clamp(br, 0, limit);
         bl = Math.clamp(bl, 0, limit);
-        int c = applyAlpha(color);
-        if (Colors.alpha(c) == 0) return;
+        int top = applyAlpha(topColor), bottom = applyAlpha(bottomColor);
+        if (Colors.alpha(top) == 0 && Colors.alpha(bottom) == 0) return;
+        gradientTop = y;
+        gradientHeight = h;
+        gradientFrom = top;
+        gradientTo = bottom;
 
         float x2 = x + w, y2 = y + h;
-        float top = Math.max(tl, tr);
-        float bottom = Math.max(bl, br);
+        float topBand = Math.max(tl, tr);
+        float bottomBand = Math.max(bl, br);
 
         beginShape();
         // Corners: uv runs from the corner's circle center (0) to its edge (1).
-        solidQuad(x, y, x + tl, y + tl, 1, 1, 0, 0, c);
-        solidQuad(x2 - tr, y, x2, y + tr, 0, 1, 1, 0, c);
-        solidQuad(x2 - br, y2 - br, x2, y2, 0, 0, 1, 1, c);
-        solidQuad(x, y2 - bl, x + bl, y2, 1, 0, 0, 1, c);
+        fillQuad(x, y, x + tl, y + tl, 1, 1, 0, 0);
+        fillQuad(x2 - tr, y, x2, y + tr, 0, 1, 1, 0);
+        fillQuad(x2 - br, y2 - br, x2, y2, 0, 0, 1, 1);
+        fillQuad(x, y2 - bl, x + bl, y2, 1, 0, 0, 1);
         // Fill beside the smaller corner of each band, then the bands themselves.
-        solidQuad(x, y + tl, x + tl, y + top, 0, 0, 0, 0, c);
-        solidQuad(x2 - tr, y + tr, x2, y + top, 0, 0, 0, 0, c);
-        solidQuad(x, y2 - bottom, x + bl, y2 - bl, 0, 0, 0, 0, c);
-        solidQuad(x2 - br, y2 - bottom, x2, y2 - br, 0, 0, 0, 0, c);
-        solidQuad(x + tl, y, x2 - tr, y + top, 0, 0, 0, 0, c);
-        solidQuad(x + bl, y2 - bottom, x2 - br, y2, 0, 0, 0, 0, c);
-        solidQuad(x, y + top, x2, y2 - bottom, 0, 0, 0, 0, c);
+        fillQuad(x, y + tl, x + tl, y + topBand, 0, 0, 0, 0);
+        fillQuad(x2 - tr, y + tr, x2, y + topBand, 0, 0, 0, 0);
+        fillQuad(x, y2 - bottomBand, x + bl, y2 - bl, 0, 0, 0, 0);
+        fillQuad(x2 - br, y2 - bottomBand, x2, y2 - br, 0, 0, 0, 0);
+        fillQuad(x + tl, y, x2 - tr, y + topBand, 0, 0, 0, 0);
+        fillQuad(x + bl, y2 - bottomBand, x2 - br, y2, 0, 0, 0, 0);
+        fillQuad(x, y + topBand, x2, y2 - bottomBand, 0, 0, 0, 0);
         submitShape();
+    }
+
+    // Vertical gradient of the rounded rectangle being built.
+    private float gradientTop, gradientHeight;
+    private int gradientFrom, gradientTo;
+
+    private void fillQuad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1) {
+        int top = Colors.lerp(gradientFrom, gradientTo, (y0 - gradientTop) / gradientHeight);
+        int bottom = Colors.lerp(gradientFrom, gradientTo, (y1 - gradientTop) / gradientHeight);
+        quad(x0, y0, x1, y1, u0, v0, u1, v1, SOLID, 0, top, top, bottom, bottom);
     }
 
     /** Outline of a rounded rectangle, drawn inside its bounds. */
@@ -218,15 +253,30 @@ public final class Render2D {
 
     /** A line segment with round caps. */
     public void line(float x1, float y1, float x2, float y2, float thickness, int color) {
-        float dx = x2 - x1, dy = y2 - y1;
-        float length = (float) Math.sqrt(dx * dx + dy * dy);
-        Matrix3x2fStack pose = graphics.pose();
-        pose.pushMatrix();
-        pose.translate(x1, y1);
-        pose.rotate((float) Math.atan2(dy, dx));
-        float half = thickness / 2f;
-        roundedRect(-half, -half, length + thickness, thickness, half, color);
-        pose.popMatrix();
+        polyline(thickness, color, x1, y1, x2, y2);
+    }
+
+    /** Connected round-capped segments through {@code points} (x, y pairs), drawn as one shape. */
+    public void polyline(float thickness, int color, float... points) {
+        int c = applyAlpha(color);
+        if (Colors.alpha(c) == 0 || points.length < 4) return;
+        beginShape();
+        for (int i = 0; i + 3 < points.length; i += 2) {
+            capsule(points[i], points[i + 1], points[i + 2], points[i + 3], thickness, c);
+        }
+        submitShape();
+    }
+
+    /** A circular arc from angle {@code start} to {@code end} (radians, clockwise on screen from +x). */
+    public void arc(float centerX, float centerY, float radius, float start, float end, float thickness, int color) {
+        int segments = Math.max(3, (int) Math.ceil(Math.abs(end - start) * radius / 1.2f));
+        float[] points = new float[(segments + 1) * 2];
+        for (int i = 0; i <= segments; i++) {
+            double angle = start + (end - start) * i / segments;
+            points[i * 2] = centerX + (float) Math.cos(angle) * radius;
+            points[i * 2 + 1] = centerY + (float) Math.sin(angle) * radius;
+        }
+        polyline(thickness, color, points);
     }
 
     /**
@@ -234,15 +284,12 @@ public final class Render2D {
      * (pi/2 points it down).
      */
     public void chevron(float centerX, float centerY, float size, float angle, float thickness, int color) {
-        Matrix3x2fStack pose = graphics.pose();
-        pose.pushMatrix();
-        pose.translate(centerX, centerY);
-        pose.rotate(angle);
-        float h = size / 2f;
-        float w = size / 4f;
-        line(-w, -h, w, 0, thickness, color);
-        line(-w, h, w, 0, thickness, color);
-        pose.popMatrix();
+        float h = size / 2f, w = size / 4f;
+        float cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
+        polyline(thickness, color,
+            centerX + -w * cos - -h * sin, centerY + -w * sin + -h * cos,
+            centerX + w * cos, centerY + w * sin,
+            centerX + -w * cos - h * sin, centerY + -w * sin + h * cos);
     }
 
     /** Checkerboard used behind translucent color previews. */
@@ -268,12 +315,26 @@ public final class Render2D {
         return 9f;
     }
 
+    /** Y for regular text so its capitals are centered in a row. */
+    public float textY(float rowY, float rowHeight) {
+        return rowY + rowHeight / 2f - 3.5f;
+    }
+
+    /** Y for small text so its capitals are centered in a row. */
+    public float smallY(float rowY, float rowHeight) {
+        return rowY + rowHeight / 2f - (customFont ? 4.1f : 2.6f);
+    }
+
     public float textWidth(String text) {
         return textWidth(text, false);
     }
 
     public float textWidth(String text, boolean bold) {
-        return mc.font.getSplitter().stringWidth(sequence(text, bold));
+        return mc.font.getSplitter().stringWidth(sequence(text, bold ? boldStyle : regularStyle));
+    }
+
+    public float smallWidth(String text) {
+        return mc.font.getSplitter().stringWidth(sequence(text, smallStyle)) * smallScale();
     }
 
     /** Draws text with its top at {@code y}; returns the drawn width. */
@@ -282,18 +343,32 @@ public final class Render2D {
     }
 
     public float text(String text, float x, float y, int color, boolean bold) {
-        FormattedCharSequence sequence = sequence(text, bold);
+        return draw(sequence(text, bold ? boldStyle : regularStyle), x, y, color, 1f);
+    }
+
+    /** Secondary text (captions, badges): a smaller size of the same font. */
+    public float small(String text, float x, float y, int color) {
+        return draw(sequence(text, smallStyle), x, y, color, smallScale());
+    }
+
+    /** Inter ships a real small size; Minecraft's pixel font is scaled down instead. */
+    private float smallScale() {
+        return customFont ? 1f : 0.75f;
+    }
+
+    private float draw(FormattedCharSequence sequence, float x, float y, int color, float scale) {
         int c = applyAlpha(color);
         // Below a few alpha steps text looks like noise, and is invisible anyway.
         if (Colors.alpha(c) > 3) {
             Matrix3x2fStack pose = graphics.pose();
             pose.pushMatrix();
             pose.translate(x, y);
+            if (scale != 1f) pose.scale(scale);
             // Minecraft's pixel font needs its drop shadow to read well; Inter doesn't.
             graphics.text(mc.font, sequence, 0, 0, c, !customFont);
             pose.popMatrix();
         }
-        return mc.font.getSplitter().stringWidth(sequence);
+        return mc.font.getSplitter().stringWidth(sequence) * scale;
     }
 
     public void textCentered(String text, float centerX, float y, int color, boolean bold) {
@@ -310,8 +385,8 @@ public final class Render2D {
         return text.substring(0, end).stripTrailing() + ellipsis;
     }
 
-    private FormattedCharSequence sequence(String text, boolean bold) {
-        return FormattedCharSequence.forward(text, bold ? boldStyle : regularStyle);
+    private static FormattedCharSequence sequence(String text, Style style) {
+        return FormattedCharSequence.forward(text, style);
     }
 
     public Font font() {
@@ -339,16 +414,57 @@ public final class Render2D {
                       int mode, int param,
                       int topLeft, int topRight, int bottomRight, int bottomLeft) {
         if (x1 - x0 <= 0 || y1 - y0 <= 0) return;
+        emit(x0, y0, x0, y1, x1, y1, x1, y0, u0, v0, u1, v1, mode, param, topLeft, bottomLeft, bottomRight, topRight);
+    }
+
+    /**
+     * A round-capped segment: a rounded rectangle along the segment direction, built from the
+     * same corner quads as {@link #roundedRect}, rotated into place.
+     */
+    private void capsule(float x1, float y1, float x2, float y2, float thickness, int color) {
+        float dx = x2 - x1, dy = y2 - y1;
+        float length = (float) Math.sqrt(dx * dx + dy * dy);
+        if (length < 1e-4f) {
+            dx = 1f;
+            dy = 0f;
+            length = 0f;
+        } else {
+            dx /= length;
+            dy /= length;
+        }
+        float h = thickness / 2f;
+        segmentQuad(x1, y1, dx, dy, -h, -h, 0, 0, 1, 1, 0, 0, color);
+        segmentQuad(x1, y1, dx, dy, -h, 0, 0, h, 1, 0, 0, 1, color);
+        segmentQuad(x1, y1, dx, dy, length, -h, length + h, 0, 0, 1, 1, 0, color);
+        segmentQuad(x1, y1, dx, dy, length, 0, length + h, h, 0, 0, 1, 1, color);
+        if (length > 0) segmentQuad(x1, y1, dx, dy, 0, -h, length, h, 0, 0, 0, 0, color);
+    }
+
+    /** A quad in segment space: {@code a} runs along (dx, dy) from the origin, {@code b} across it. */
+    private void segmentQuad(float ox, float oy, float dx, float dy,
+                             float a0, float b0, float a1, float b1,
+                             float u0, float v0, float u1, float v1, int color) {
+        float nx = -dy, ny = dx;
+        emit(ox + a0 * dx + b0 * nx, oy + a0 * dy + b0 * ny,
+            ox + a0 * dx + b1 * nx, oy + a0 * dy + b1 * ny,
+            ox + a1 * dx + b1 * nx, oy + a1 * dy + b1 * ny,
+            ox + a1 * dx + b0 * nx, oy + a1 * dy + b0 * ny,
+            u0, v0, u1, v1, SOLID, 0, color, color, color, color);
+    }
+
+    /**
+     * Adds any quad. Corners go top-left, bottom-left, bottom-right, top-right in the quad's
+     * own orientation, with texture coordinates (u0, v0), (u0, v1), (u1, v1), (u1, v0).
+     */
+    private void emit(float ax, float ay, float bx, float by, float cx, float cy, float dx, float dy,
+                      float u0, float v0, float u1, float v1, int mode, int param,
+                      int colorA, int colorB, int colorC, int colorD) {
         float modeOffset = 2f * mode + 0.5f;
         float paramOffset = 2f * param + 0.5f;
-        vertex(x0, y0, u0 + modeOffset, v0 + paramOffset, topLeft);
-        vertex(x0, y1, u0 + modeOffset, v1 + paramOffset, bottomLeft);
-        vertex(x1, y1, u1 + modeOffset, v1 + paramOffset, bottomRight);
-        vertex(x1, y0, u1 + modeOffset, v0 + paramOffset, topRight);
-        minX = Math.min(minX, x0);
-        minY = Math.min(minY, y0);
-        maxX = Math.max(maxX, x1);
-        maxY = Math.max(maxY, y1);
+        vertex(ax, ay, u0 + modeOffset, v0 + paramOffset, colorA);
+        vertex(bx, by, u0 + modeOffset, v1 + paramOffset, colorB);
+        vertex(cx, cy, u1 + modeOffset, v1 + paramOffset, colorC);
+        vertex(dx, dy, u1 + modeOffset, v0 + paramOffset, colorD);
     }
 
     private void vertex(float x, float y, float u, float v, int color) {
@@ -362,6 +478,10 @@ public final class Render2D {
         vertices[o + 2] = u;
         vertices[o + 3] = v;
         colors[vertexCount++] = color;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
     }
 
     private void submitShape() {
