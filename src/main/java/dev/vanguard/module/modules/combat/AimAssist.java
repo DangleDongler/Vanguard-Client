@@ -30,8 +30,12 @@ import net.minecraft.world.phys.Vec3;
  *       jump in steps. This aims where the target is <em>drawn</em> in the current frame.</li>
  *   <li><b>A spring, not easing</b>: see {@link AimSpring}. The turn speed ramps up and settles
  *       without overshooting, and moves the same at 30 or 240 fps.</li>
- *   <li><b>Follow</b>: the target's own turning speed is fed forward, so a strafing target is
+ *   <li><b>Follow</b>: the target's sideways motion is fed forward, so a strafing target is
  *       tracked instead of trailed.</li>
+ *   <li><b>No hop chasing</b>: vertical aim only corrects when your crosshair is off the hitbox,
+ *       and a target bouncing up to a jump's height (their jumps, or the knockback from your own
+ *       hits) is treated as still standing where they were. Chasing those hops swung the camera
+ *       up and down after every hit.</li>
  *   <li><b>No hard edges</b>: the assist fades in when it picks a target and fades out near the
  *       edge of the field of view and range, so it never starts or stops abruptly.</li>
  * </ul>
@@ -59,6 +63,8 @@ public final class AimAssist extends Module {
     private static final double FADE_IN_SECONDS = 0.15;
     /** The assist fades out over the outer part of the field of view and the last bit of range. */
     private static final double FOV_FADE_START = 0.75, RANGE_FADE_BLOCKS = 0.75;
+    /** How high above their last footing a target can bounce before the aim follows them up. */
+    private static final double MAX_HOP = 1.3;
     /** Smoothing for the target's measured turning speed. */
     private static final double RATE_SMOOTHING_SECONDS = 0.05;
     /** A gap between frames longer than this (a pause or a screen) restarts the motion. */
@@ -71,10 +77,14 @@ public final class AimAssist extends Module {
     private long acquiredAtNanos;
     private long lastFrameNanos;
 
-    // The target's direction last frame and how fast it's changing (degrees per second).
+    // The target's direction last frame and how fast it's turning sideways (degrees per second).
     private boolean haveLastDirection;
-    private float lastTargetYaw, lastTargetPitch;
-    private double targetYawRate, targetPitchRate;
+    private float lastTargetYaw;
+    private double targetYawRate;
+
+    // Where the target last stood, to tell a short hop from real vertical movement.
+    private boolean haveGround;
+    private double groundY;
 
     public AimAssist() {
         super("AimAssist", "Smoothly pulls your aim toward the best target, like console aim assist.", Category.COMBAT);
@@ -91,7 +101,7 @@ public final class AimAssist extends Module {
         yawSpring.reset();
         pitchSpring.reset();
         haveLastDirection = false;
-        targetYawRate = targetPitchRate = 0;
+        targetYawRate = 0;
     }
 
     /** Called every frame from the camera-turn hook, after the player's own mouse movement. */
@@ -117,21 +127,23 @@ public final class AimAssist extends Module {
             target = picked;
             acquiredAtNanos = now;
             haveLastDirection = false;
-            targetYawRate = targetPitchRate = 0;
+            targetYawRate = 0;
+            haveGround = false;
         }
 
-        double errorYaw = 0, errorPitch = 0, rateYaw = 0, ratePitch = 0, weight = 0;
+        double errorYaw = 0, errorPitch = 0, rateYaw = 0, weight = 0;
         if (target != null) {
-            AABB box = drawnBox(target, partialTick);
-            float[] aim = aimRotation(eye, look, box, partialTick);
+            AABB drawn = drawnBox(target, partialTick);
+            double lift = hopHeight(drawn);
+            AABB box = drawn.move(0, -lift, 0);
+            float[] aim = aimRotation(eye, look, box, lift, partialTick);
             if (aim != null) {
                 errorYaw = Mth.wrapDegrees(aim[0] - player.getYRot());
                 errorPitch = aim[1] - player.getXRot();
             }
             measureTargetRate(eye, box.getCenter(), dt);
             rateYaw = targetYawRate;
-            ratePitch = targetPitchRate;
-            weight = fadeIn(now) * fovFade(eye, look, box) * rangeFade(eye, box);
+            weight = fadeIn(now) * fovFade(eye, look, drawn) * rangeFade(eye, drawn);
         }
 
         double strength = speed.get() / 100.0;
@@ -142,7 +154,8 @@ public final class AimAssist extends Module {
         yawSpring.limitVelocity(MAX_TURN_SPEED);
         double turnPitch = 0;
         if (vertical.isOn()) {
-            turnPitch = pitchSpring.step(weight * errorPitch, weight * ratePitch, follow, omega, dt);
+            // No follow on pitch: the vertical aim only moves when the crosshair is off the hitbox.
+            turnPitch = pitchSpring.step(weight * errorPitch, 0, 0, omega, dt);
             pitchSpring.limitVelocity(MAX_TURN_SPEED);
         } else {
             pitchSpring.reset();
@@ -164,10 +177,27 @@ public final class AimAssist extends Module {
         return entity.getBoundingBox().move(entity.getPosition(partialTick).subtract(entity.position()));
     }
 
+    /**
+     * How much of the target's height above where it last stood to ignore. A hop up to a jump's
+     * height ({@link #MAX_HOP}) is ignored entirely, as if they were still standing there. Higher
+     * than that, it eases back to zero by twice that height, so launches (wind charges, mace
+     * fights) are tracked fully, and so are falls to lower ground.
+     */
+    private double hopHeight(AABB drawn) {
+        if (target.onGround()) {
+            groundY = target.getY();
+            haveGround = true;
+        }
+        if (!haveGround) return 0.0;
+        double height = drawn.minY - groundY;
+        if (height <= 0) return 0.0;
+        return height <= MAX_HOP ? height : Math.max(0.0, 2 * MAX_HOP - height);
+    }
+
     /** Yaw and pitch to aim at, or null when the crosshair is already where it should be. */
-    private float[] aimRotation(Vec3 eye, Vec3 look, AABB box, float partialTick) {
+    private float[] aimRotation(Vec3 eye, Vec3 look, AABB box, double lift, float partialTick) {
         Vec3 point = switch (aimAt.get()) {
-            case HEAD -> target.getEyePosition(partialTick);
+            case HEAD -> target.getEyePosition(partialTick).subtract(0, lift, 0);
             case BODY -> box.getCenter();
             case CLOSEST -> {
                 // Aim a little inside the edge, so the crosshair ends up on the target.
@@ -179,18 +209,15 @@ public final class AimAssist extends Module {
         return point == null ? null : RotationUtil.toRotation(eye, point);
     }
 
-    /** Tracks how fast the target's direction is changing, so the assist can move along with it. */
+    /** Tracks how fast the target is moving sideways across your view, so the assist can move with it. */
     private void measureTargetRate(Vec3 eye, Vec3 center, double dt) {
-        float[] direction = RotationUtil.toRotation(eye, center);
+        float yaw = RotationUtil.toRotation(eye, center)[0];
         if (haveLastDirection) {
-            double yawRate = Mth.wrapDegrees(direction[0] - lastTargetYaw) / dt;
-            double pitchRate = (direction[1] - lastTargetPitch) / dt;
+            double yawRate = Mth.wrapDegrees(yaw - lastTargetYaw) / dt;
             double blend = 1 - Math.exp(-dt / RATE_SMOOTHING_SECONDS);
             targetYawRate += (yawRate - targetYawRate) * blend;
-            targetPitchRate += (pitchRate - targetPitchRate) * blend;
         }
-        lastTargetYaw = direction[0];
-        lastTargetPitch = direction[1];
+        lastTargetYaw = yaw;
         haveLastDirection = true;
     }
 

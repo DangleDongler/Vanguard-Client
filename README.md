@@ -45,6 +45,11 @@ How it stays smooth:
   overshooting, and moves the same at any frame rate.
 - It follows a strafing target's own motion instead of trailing it, and fades in and out at the
   edges of range and field of view rather than starting or stopping abruptly.
+- It doesn't chase hops. Vertical aim only corrects when your crosshair is off the hitbox, and a
+  target bouncing up to a jump's height (their jumps, or the knockback from your own hits) counts as
+  still standing where they were. Higher launches and drops are still tracked. With TriggerBot on,
+  chasing the knockback hop used to swing the camera about 9 degrees down and back after every hit;
+  now it holds within 0.1 degrees.
 
 Measured in the live client, strafing past a target at ~50 fps: the frame-to-frame change in turn
 speed dropped from 29% of the turn speed (the old version saw-toothed every game tick) to 4%.
@@ -62,8 +67,10 @@ Settings (Combat tab):
   knockback of being hit). Crits Only: never hits unless it crits. Off: hits as soon as charged.
 - Spacing - how far into your reach a target must be. 100% hits the moment they step into reach
   (outspacing); lower waits for them to come closer.
-- Hit Select - in ground trades, lets the opponent swing first and counters right away, so you
-  take less knockback. Hits anyway after a short wait.
+- Server Position - also aims at where the server says the target is right now (on by default).
+  See below.
+- Hit Select - in ground trades, waits for the opponent to swing (hit or miss, read from the
+  server's swing packet), then counters right away. Hits anyway after a short wait.
 - Weapons Only - only with a sword, axe, mace, spear or trident.
 - Skip Shields - don't waste hits on a raised shield. Axes still hit, to disable it.
 - Players / Mobs - what to attack.
@@ -73,11 +80,22 @@ server thinks about your sprinting (`ServerSprintTracker`). After a sprint hit, 
 your sprint without telling the client. So while you keep holding sprint, you move at sprint speed
 but your falling hits still crit (the sprint-crit state).
 
+Server Position: your game draws other players and mobs a little behind their real position,
+because each position update is eased in over three ticks. The exact latest position from the
+server is kept as well, and the trigger bot checks your crosshair and reach against both. The
+server judges reach from its own position, so against a target walking in, hits land about a tick
+sooner (measured: 22.6 vs 23.6 ticks between hits on a zombie walking back in after knockback).
+
+Hit Select: every attack, hit or miss, sends a swing packet, and it spends that player's charge.
+Countering right after it also trims your next knockback. A landed sprint hit cuts the knockback
+speed the server still holds for you by 40%, and that leftover adds to the next knockback you take.
+
 Verified in the live client with an iron sword: a hit every 12 ticks (the true full-charge time)
 for 6 damage on the ground, and 9-damage crits on every hit while jumping. It also landed P-crits
 off a zombie's knockback without jumping, and hit a walking zombie at the edge of reach
-(2.95-3.0 blocks). Crits Only, Spacing and Weapons Only also behaved as described. Hit Select and
-Skip Shields need a real player opponent and were not tested live.
+(2.95-3.0 blocks). Crits Only, Spacing and Weapons Only also behaved as described. Hit Select's
+swing and hurt timing was tested against a zombie, including swings that missed. Against players
+it is only reasoned from the code, as is Skip Shields.
 
 ## Installing
 

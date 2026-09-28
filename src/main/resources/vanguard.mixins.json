@@ -3,6 +3,7 @@
   "package": "dev.vanguard.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "ClientPacketListenerMixin",
     "EntityTurnMixin",
     "KeyboardHandlerMixin",
     "LocalPlayerAccessor",

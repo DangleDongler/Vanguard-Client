@@ -9,11 +9,13 @@ import dev.vanguard.setting.EnumSetting;
 import dev.vanguard.setting.NumberSetting;
 import dev.vanguard.util.FallTiming;
 import dev.vanguard.util.ServerSprintTracker;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.player.Player;
@@ -23,6 +25,7 @@ import net.minecraft.world.item.component.AttackRange;
 import net.minecraft.world.item.component.Weapon;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -45,6 +48,12 @@ import net.minecraft.world.phys.Vec3;
  *
  * <p><b>Spacing:</b> with Spacing at 100% it swings on the first frame the target is in reach
  * (outspacing). Lower values wait until they're closer.
+ *
+ * <p><b>Server Position:</b> your game draws other players and mobs a little behind where the server
+ * says they are: each position update is eased in over three ticks so movement looks smooth. The
+ * exact latest position from the server is kept too, and this checks the crosshair and reach
+ * against both. The server judges reach from its own position, so hits on an approaching target
+ * land a tick or two sooner.
  */
 public final class TriggerBot extends Module {
     public enum Crits {
@@ -64,7 +73,8 @@ public final class TriggerBot extends Module {
 
     public final EnumSetting<Crits> crits = mode("Crits", "Priority: in the air, waits for the fall so the hit crits (jump crits and P-crits); on the ground, hits right away. Crits Only: only hits when it will crit.", Crits.PRIORITY);
     public final NumberSetting spacing = number("Spacing", "How far into your reach a target must be before you hit. 100% hits the moment they step into reach (outspacing).", 100, 50, 100, 1, "%");
-    public final BoolSetting hitSelect = bool("Hit Select", "In ground trades, lets the opponent swing first and hits back instantly, so you take less knockback. Hits anyway after a short wait.", false);
+    public final BoolSetting serverPosition = bool("Server Position", "Also aims at where the server says the target is right now. Your game draws them a little behind that, so first hits land sooner.", true);
+    public final BoolSetting hitSelect = bool("Hit Select", "In ground trades, waits for the opponent to swing first (hit or miss), then hits back instantly. Hits anyway after a short wait.", false);
     public final BoolSetting weaponsOnly = bool("Weapons Only", "Only attack while holding a sword, axe, mace, spear or trident.", true);
     public final BoolSetting skipShields = bool("Skip Shields", "Don't waste a hit on a player blocking with a shield. Axes still hit, to disable it.", true);
     public final BoolSetting players = bool("Players", "Attack players.", true);
@@ -83,6 +93,8 @@ public final class TriggerBot extends Module {
     private static final long HIT_SELECT_MAX_HOLD_NANOS = 400_000_000L;
     /** How close an opponent must be to hit you back, for hit select to be worth it. */
     private static final double OPPONENT_REACH = 3.2;
+    /** Beyond this gap between drawn and server position, the server position is treated as stale. */
+    private static final double SERVER_POSITION_DRIFT = 4.0;
 
     private final ServerSprintTracker serverSprint = new ServerSprintTracker();
     private LocalPlayer trackedPlayer;
@@ -91,6 +103,9 @@ public final class TriggerBot extends Module {
     private long holdStartNanos;
     private int lastHurtTime;
     private long lastHurtNanos;
+
+    /** When each entity last swung, by entity id, from the server's swing packets. */
+    private final Int2LongOpenHashMap swingNanos = new Int2LongOpenHashMap();
 
     public TriggerBot() {
         super("TriggerBot", "Attacks when your crosshair is on a target, timed for full damage and crits.", Category.COMBAT);
@@ -132,14 +147,25 @@ public final class TriggerBot extends Module {
         // Re-check the crosshair now: the mouse and aim assist may have moved it this frame.
         float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
         mc.gameRenderer.pick(partialTick);
-        if (!(mc.hitResult instanceof EntityHitResult hit) || !(hit.getEntity() instanceof LivingEntity target)
-            || !isValidTarget(player, target)) {
+        Vec3 eye = player.getEyePosition(partialTick);
+        double reach = reach(player, held);
+        EntityHitResult hit = mc.hitResult instanceof EntityHitResult entityHit
+            && entityHit.getEntity() instanceof LivingEntity living && isValidTarget(player, living) ? entityHit : null;
+        if (serverPosition.isOn()) {
+            EntityHitResult atServerPosition = pickServerPosition(mc, player, eye, reach, hit);
+            if (atServerPosition != null) {
+                // Point the game's own attack at it, exactly as if the crosshair pick had found it.
+                hit = atServerPosition;
+                mc.hitResult = hit;
+                mc.crosshairPickEntity = hit.getEntity();
+            }
+        }
+        if (hit == null) {
             resetWaits();
             return;
         }
+        LivingEntity target = (LivingEntity) hit.getEntity();
 
-        Vec3 eye = player.getEyePosition(partialTick);
-        double reach = reach(player, held);
         double hitRange = reach * spacing.get() / 100.0;
         if (eye.distanceTo(hit.getLocation()) > hitRange + 1.0e-4) {
             resetWaits();
@@ -175,10 +201,63 @@ public final class TriggerBot extends Module {
             trackedPlayer = player;
             serverSprint.reset();
             lastHurtTime = 0;
+            swingNanos.clear();
         }
         serverSprint.observeSent(((LocalPlayerAccessor) player).vanguard$wasSprinting());
         if (player.hurtTime > lastHurtTime) lastHurtNanos = now;
         lastHurtTime = player.hurtTime;
+    }
+
+    /**
+     * Checks the crosshair against each nearby target's latest server position. Returns a hit only if
+     * it's closer than what the normal crosshair pick found (or that pick found nothing), and not
+     * behind a block.
+     */
+    private EntityHitResult pickServerPosition(Minecraft mc, LocalPlayer player, Vec3 eye, double reach, EntityHitResult drawnHit) {
+        Vec3 look = Vec3.directionFromRotation(player.getXRot(), player.getYRot());
+        double limit = reach;
+        if (drawnHit != null) limit = Math.min(limit, eye.distanceTo(drawnHit.getLocation()));
+        if (mc.hitResult != null && mc.hitResult.getType() == HitResult.Type.BLOCK) {
+            limit = Math.min(limit, eye.distanceTo(mc.hitResult.getLocation()));
+        }
+        Vec3 end = eye.add(look.scale(limit));
+        AABB search = new AABB(eye, end).inflate(SERVER_POSITION_DRIFT + 1.0);
+
+        EntityHitResult best = null;
+        double bestDistance = limit;
+        for (Entity entity : mc.level.getEntities(player, search)) {
+            if (!(entity instanceof LivingEntity living) || !isValidTarget(player, living)) continue;
+            AABB box = serverBox(living);
+            if (box == null) continue;
+            Vec3 point = box.contains(eye) ? eye : box.clip(eye, end).orElse(null);
+            if (point == null) continue;
+            double distance = eye.distanceTo(point);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = new EntityHitResult(living, point);
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The target's hitbox at the latest position the server sent, or null if that looks stale (a
+     * teleport doesn't update it, so a big gap means it can't be trusted).
+     */
+    private static AABB serverBox(LivingEntity entity) {
+        Vec3 server = entity.getPositionCodec().getBase();
+        Vec3 offset = server.subtract(entity.position());
+        if (offset.lengthSqr() > SERVER_POSITION_DRIFT * SERVER_POSITION_DRIFT) return null;
+        return entity.getBoundingBox().move(offset);
+    }
+
+    /**
+     * Called for each swing packet from the server. Players send one whenever they attack, hit or
+     * miss, and either way their charge is now spent.
+     */
+    public void onSwingPacket(int entityId) {
+        if (swingNanos.size() > 256) swingNanos.clear();
+        swingNanos.put(entityId, System.nanoTime());
     }
 
     /** The server's crit check, as it will see you when this attack arrives. */
@@ -231,15 +310,19 @@ public final class TriggerBot extends Module {
     }
 
     /**
-     * Hit select: in a ground trade, let the opponent swing first, then counter right away. Hitting
-     * just after being hit cuts the knockback you take. Never holds longer than a moment.
+     * Hit select: in a ground trade, let the opponent swing first, then counter right away. Their
+     * swing spends their charge whether it lands or not. And a sprint hit of yours cuts the knockback
+     * speed the server still holds for you by 40%, so the next knockback you take is smaller. Never
+     * holds longer than a moment.
      */
     private boolean shouldHoldForHitSelect(LocalPlayer player, LivingEntity target, float partialTick, long now) {
         if (!(target instanceof Player) || !player.onGround()) return false;
         // Only worth it when they're close enough to hit you back.
         AABB ownBox = player.getBoundingBox();
         if (ownBox.distanceToSqr(target.getEyePosition(partialTick)) > OPPONENT_REACH * OPPONENT_REACH) return false;
+        // They just hit you, or swung and missed: their attack is spent, so counter now.
         if (now - lastHurtNanos < HIT_SELECT_WINDOW_NANOS) return false;
+        if (now - swingNanos.getOrDefault(target.getId(), 0L) < HIT_SELECT_WINDOW_NANOS) return false;
         if (holdStartNanos == 0) holdStartNanos = now;
         return now - holdStartNanos < HIT_SELECT_MAX_HOLD_NANOS;
     }
