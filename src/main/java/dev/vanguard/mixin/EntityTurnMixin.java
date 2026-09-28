@@ -2,6 +2,7 @@ package dev.vanguard.mixin;
 
 import dev.vanguard.Vanguard;
 import dev.vanguard.module.modules.combat.AimAssist;
+import dev.vanguard.module.modules.combat.TriggerBot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Entity;
@@ -11,20 +12,22 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Applies aim assist after the local player's own mouse rotation. {@code turn} is called once per
- * frame while the mouse is grabbed (even with no movement), so this is where the assist nudges
- * the camera smoothly toward a target.
+ * Per-frame combat hook, run after the local player's own mouse rotation. {@code turn} is called
+ * once per frame while the mouse is grabbed (even with no movement), just before the frame is drawn.
+ * Aim assist nudges the camera first, then the trigger bot checks what the crosshair is on.
  */
 @Mixin(Entity.class)
 public abstract class EntityTurnMixin {
     @Inject(method = "turn(DD)V", at = @At("TAIL"))
-    private void vanguard$aimAssist(double xo, double yo, CallbackInfo ci) {
+    private void vanguard$afterTurn(double xo, double yo, CallbackInfo ci) {
         Object self = this;
-        Minecraft minecraft = Minecraft.getInstance();
-        if (self != minecraft.player) return;
+        if (self != Minecraft.getInstance().player) return;
         Vanguard vanguard = Vanguard.get();
         if (vanguard == null) return;
+        LocalPlayer player = (LocalPlayer) self;
         AimAssist aimAssist = vanguard.aimAssist();
-        if (aimAssist != null) aimAssist.onTurn((LocalPlayer) self, xo, yo);
+        if (aimAssist != null) aimAssist.onTurn(player);
+        TriggerBot triggerBot = vanguard.triggerBot();
+        if (triggerBot != null) triggerBot.onFrame(player);
     }
 }

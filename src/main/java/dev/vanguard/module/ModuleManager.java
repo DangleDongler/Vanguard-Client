@@ -5,6 +5,7 @@ import dev.vanguard.module.modules.combat.AutoCrystal;
 import dev.vanguard.module.modules.combat.AutoTotem;
 import dev.vanguard.module.modules.combat.AimAssist;
 import dev.vanguard.module.modules.combat.Surround;
+import dev.vanguard.module.modules.combat.TriggerBot;
 import dev.vanguard.module.modules.misc.AutoReconnect;
 import dev.vanguard.module.modules.misc.FakePlayer;
 import dev.vanguard.module.modules.movement.ElytraFly;
@@ -33,6 +34,7 @@ public final class ModuleManager {
     public void init() {
         register(new AutoCrystal());
         register(new AimAssist());
+        register(new TriggerBot());
         register(new AutoTotem());
         register(new Surround());
 

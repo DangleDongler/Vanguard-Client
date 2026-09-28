@@ -5,270 +5,254 @@ import dev.vanguard.module.Module;
 import dev.vanguard.setting.BoolSetting;
 import dev.vanguard.setting.EnumSetting;
 import dev.vanguard.setting.NumberSetting;
+import dev.vanguard.util.AimSpring;
 import dev.vanguard.util.RotationUtil;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.animal.Animal;
-import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.concurrent.ThreadLocalRandom;
-
 /**
  * Controller-style aim assist: it gently steers the real camera toward the best target every
- * frame instead of snapping. Because it modifies the player's own rotation (rather than sending
- * separate rotation packets), the assist is visible on screen and the player keeps full control.
+ * frame instead of snapping, so you keep full control and see exactly what it does.
  *
- * <p>Design goals, drawn from how aim assist behaves in practice:
+ * <p>What keeps the motion smooth:
  * <ul>
- *   <li><b>Assist, don't take over</b> — strength is a per-second pull fraction, capped by a
- *       human-plausible max turn speed, with a deadzone so fine aim stays yours.</li>
- *   <li><b>Frame-rate independent</b> — smoothing uses real elapsed time, so it feels the same
- *       at 60 or 240 fps.</li>
- *   <li><b>Human-like</b> — reaction delay before locking a new target, smoothed jitter, and
- *       eased approach (fast when far, slow when near) rather than a rigid line.</li>
- *   <li><b>Magnetism</b> — optional slowdown that reduces your own mouse sensitivity near a
- *       target, the hallmark of console aim assist.</li>
- *   <li><b>Prediction</b> — leads a strafing target using its smoothed velocity.</li>
+ *   <li><b>Interpolated positions</b>: players and mobs only move 20 times a second (each game
+ *       tick), but frames are drawn far more often. Aiming at those raw positions makes the aim
+ *       jump in steps. This aims where the target is <em>drawn</em> in the current frame.</li>
+ *   <li><b>A spring, not easing</b>: see {@link AimSpring}. The turn speed ramps up and settles
+ *       without overshooting, and moves the same at 30 or 240 fps.</li>
+ *   <li><b>Follow</b>: the target's own turning speed is fed forward, so a strafing target is
+ *       tracked instead of trailed.</li>
+ *   <li><b>No hard edges</b>: the assist fades in when it picks a target and fades out near the
+ *       edge of the field of view and range, so it never starts or stops abruptly.</li>
  * </ul>
  */
 public final class AimAssist extends Module {
-    public enum TargetMode { CROSSHAIR, DISTANCE, HEALTH, SMART }
+    public enum AimAt { CLOSEST, HEAD, BODY }
 
-    public enum AimPoint { EYES, BODY, NEAREST }
+    public enum Priority { CROSSHAIR, NEAREST, LOWEST_HEALTH }
 
-    public final EnumSetting<TargetMode> targetMode = mode("Target", "How to pick between targets in view.", TargetMode.SMART);
-    public final EnumSetting<AimPoint> aimPoint = mode("Aim Point", "Where on the target to aim. Nearest tracks the closest part of the hitbox.", AimPoint.NEAREST);
-    public final NumberSetting range = number("Range", "Only assist against targets within this distance.", 4.0, 1, 6, 0.1, "m");
-    public final NumberSetting fov = number("FOV", "Only assist while the target is within this cone of your crosshair.", 90, 10, 180, 5, "°");
+    public final NumberSetting speed = number("Speed", "How quickly your aim is pulled onto the target.", 50, 1, 100, 1, "%");
+    public final EnumSetting<AimAt> aimAt = mode("Aim At", "Where on the target to aim. Closest only helps when your crosshair is off their hitbox.", AimAt.CLOSEST);
+    public final BoolSetting vertical = bool("Vertical", "Also help you aim up and down. Off: left and right only.", true);
+    public final NumberSetting range = number("Range", "How close a target has to be.", 4.5, 1, 8, 0.1, "m");
+    public final NumberSetting fov = number("Field of View", "How far from your crosshair a target can be and still get help.", 90, 10, 180, 5, "°");
+    public final EnumSetting<Priority> priority = mode("Priority", "Which target to pick when several are in view.", Priority.CROSSHAIR);
+    public final BoolSetting players = bool("Players", "Help aim at players.", true);
+    public final BoolSetting mobs = bool("Mobs", "Help aim at mobs and animals.", false);
+    public final BoolSetting throughWalls = bool("Through Walls", "Also aim at targets hidden behind blocks.", false);
 
-    public final BoolSetting players = bool("Players", "Assist against players.", true);
-    public final BoolSetting hostiles = bool("Hostiles", "Assist against hostile mobs.", false);
-    public final BoolSetting passives = bool("Passives", "Assist against passive mobs.", false);
+    /** Stiffness range for the spring, in radians per second, mapped from Speed. */
+    private static final double OMEGA_MIN = 3, OMEGA_MAX = 22;
+    /** Hard cap on how fast the assist can turn the camera. */
+    private static final double MAX_TURN_SPEED = 720;
+    /** How long the assist takes to fade in on a new target. */
+    private static final double FADE_IN_SECONDS = 0.15;
+    /** The assist fades out over the outer part of the field of view and the last bit of range. */
+    private static final double FOV_FADE_START = 0.75, RANGE_FADE_BLOCKS = 0.75;
+    /** Smoothing for the target's measured turning speed. */
+    private static final double RATE_SMOOTHING_SECONDS = 0.05;
+    /** A gap between frames longer than this (a pause or a screen) restarts the motion. */
+    private static final double MAX_FRAME_SECONDS = 0.15;
 
-    public final NumberSetting horizontal = number("Horizontal", "Horizontal pull strength.", 45, 0, 100, 1, "%");
-    public final NumberSetting vertical = number("Vertical", "Vertical pull strength.", 35, 0, 100, 1, "%");
-    public final NumberSetting maxSpeed = number("Max Speed", "Cap on how fast the camera turns.", 400, 40, 1200, 10, "°/s");
-    public final NumberSetting deadzone = number("Deadzone", "Stop assisting once the crosshair is this close, so micro-aim stays yours.", 1.0, 0, 8, 0.1, "°");
-
-    public final BoolSetting slowdown = bool("Slowdown", "Reduce your own mouse sensitivity near a target (aim magnetism).", true);
-    public final NumberSetting slowdownAmount = number("Slowdown Amount", "How much to slow the mouse near a target.", 55, 0, 90, 1, "%").visibleWhen(slowdown::isOn);
-
-    public final NumberSetting prediction = number("Prediction", "Lead moving targets by their velocity.", 25, 0, 100, 1, "%");
-    public final NumberSetting jitter = number("Jitter", "Randomizes aim slightly so it isn't perfectly smooth.", 0.6, 0, 5, 0.1, "°");
-    public final NumberSetting reaction = number("Reaction", "Delay before locking onto a new target.", 90, 0, 500, 10, "ms");
-
-    public final BoolSetting requireAttack = bool("While Attacking", "Only assist while holding attack.", true);
-    public final BoolSetting requireVisible = bool("Require Visible", "Ignore targets you can't see.", true);
-
-    private static final float SLOWDOWN_RANGE = 14f;
-    private static final float MOUSE_TO_DEG = 0.15f;
+    private final AimSpring yawSpring = new AimSpring();
+    private final AimSpring pitchSpring = new AimSpring();
 
     private LivingEntity target;
-    private long engageAtNanos;
+    private long acquiredAtNanos;
     private long lastFrameNanos;
 
-    // Prediction state.
-    private Entity velTarget;
-    private Vec3 velLastPos;
-    private Vec3 smoothedVel = Vec3.ZERO;
-
-    // Smoothed jitter offsets and where they're easing toward.
-    private float jitterYaw, jitterPitch, jitterTargetYaw, jitterTargetPitch;
-    private long jitterNextNanos;
+    // The target's direction last frame and how fast it's changing (degrees per second).
+    private boolean haveLastDirection;
+    private float lastTargetYaw, lastTargetPitch;
+    private double targetYawRate, targetPitchRate;
 
     public AimAssist() {
-        super("AimAssist", "Steers your aim toward the best target, like console aim assist.", Category.COMBAT);
+        super("AimAssist", "Smoothly pulls your aim toward the best target, like console aim assist.", Category.COMBAT);
     }
 
     @Override
     protected void onDisable() {
         target = null;
-        smoothedVel = Vec3.ZERO;
-        velTarget = null;
         lastFrameNanos = 0;
+        resetMotion();
     }
 
-    /** Called every frame from the camera-turn hook, after the player's own mouse rotation is applied. */
-    public void onTurn(LocalPlayer player, double mouseXo, double mouseYo) {
+    private void resetMotion() {
+        yawSpring.reset();
+        pitchSpring.reset();
+        haveLastDirection = false;
+        targetYawRate = targetPitchRate = 0;
+    }
+
+    /** Called every frame from the camera-turn hook, after the player's own mouse movement. */
+    public void onTurn(LocalPlayer player) {
         if (!isEnabled()) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.screen != null) return;
 
         long now = System.nanoTime();
-        float dt = lastFrameNanos == 0 ? 0f : (float) Math.min((now - lastFrameNanos) / 1.0e9, 0.1);
+        double dt = lastFrameNanos == 0 ? 0 : (now - lastFrameNanos) / 1.0e9;
         lastFrameNanos = now;
-        if (dt <= 0f) return;
-
-        if (requireAttack.isOn() && !mc.options.keyAttack.isDown()) {
-            target = null;
+        if (dt <= 0 || dt > MAX_FRAME_SECONDS) {
+            resetMotion();
             return;
         }
 
-        target = selectTarget(player, mc, now);
-        if (target == null) return;
-        if (now < engageAtNanos) return;
+        float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+        Vec3 eye = player.getEyePosition(partialTick);
+        Vec3 look = Vec3.directionFromRotation(player.getXRot(), player.getYRot());
 
-        Vec3 eye = player.getEyePosition();
-        Vec3 point = aimPointFor(player, target, eye).add(leadFor(target, dt));
-        float[] rot = RotationUtil.toRotation(eye, point);
-
-        float curYaw = player.getYRot();
-        float curPitch = player.getXRot();
-        float dYaw = Mth.wrapDegrees(rot[0] - curYaw);
-        float dPitch = Mth.clamp(rot[1], -90f, 90f) - curPitch;
-        float angle = (float) Math.sqrt(dYaw * dYaw + dPitch * dPitch);
-
-        if (angle > fov.floatValue() / 2f) return;
-
-        // Magnetism: cancel part of the player's own mouse movement when hovering a target.
-        if (slowdown.isOn() && angle < SLOWDOWN_RANGE) {
-            float proximity = 1f - angle / SLOWDOWN_RANGE;
-            float reduce = slowdownAmount.floatValue() / 100f * proximity;
-            applyDelta(player, (float) (-mouseXo * MOUSE_TO_DEG * reduce), (float) (-mouseYo * MOUSE_TO_DEG * reduce));
+        LivingEntity picked = selectTarget(player, mc, eye, look, partialTick);
+        if (picked != target) {
+            target = picked;
+            acquiredAtNanos = now;
+            haveLastDirection = false;
+            targetYawRate = targetPitchRate = 0;
         }
 
-        if (angle <= deadzone.floatValue()) return;
-
-        float stepYaw = dYaw * smoothingAlpha(horizontal.floatValue(), dt);
-        float stepPitch = dPitch * smoothingAlpha(vertical.floatValue(), dt);
-
-        float cap = maxSpeed.floatValue() * dt;
-        stepYaw = Mth.clamp(stepYaw, -cap, cap);
-        stepPitch = Mth.clamp(stepPitch, -cap, cap);
-
-        if (jitter.get() > 0) {
-            float[] j = jitter(now, dt);
-            stepYaw += j[0];
-            stepPitch += j[1];
+        double errorYaw = 0, errorPitch = 0, rateYaw = 0, ratePitch = 0, weight = 0;
+        if (target != null) {
+            AABB box = drawnBox(target, partialTick);
+            float[] aim = aimRotation(eye, look, box, partialTick);
+            if (aim != null) {
+                errorYaw = Mth.wrapDegrees(aim[0] - player.getYRot());
+                errorPitch = aim[1] - player.getXRot();
+            }
+            measureTargetRate(eye, box.getCenter(), dt);
+            rateYaw = targetYawRate;
+            ratePitch = targetPitchRate;
+            weight = fadeIn(now) * fovFade(eye, look, box) * rangeFade(eye, box);
         }
 
-        applyDelta(player, stepYaw, stepPitch);
+        double strength = speed.get() / 100.0;
+        double omega = OMEGA_MIN + (OMEGA_MAX - OMEGA_MIN) * strength;
+        double follow = 0.25 + 0.75 * strength;
+
+        double turnYaw = yawSpring.step(weight * errorYaw, weight * rateYaw, follow, omega, dt);
+        yawSpring.limitVelocity(MAX_TURN_SPEED);
+        double turnPitch = 0;
+        if (vertical.isOn()) {
+            turnPitch = pitchSpring.step(weight * errorPitch, weight * ratePitch, follow, omega, dt);
+            pitchSpring.limitVelocity(MAX_TURN_SPEED);
+        } else {
+            pitchSpring.reset();
+        }
+
+        if (turnYaw != 0 || turnPitch != 0) applyTurn(player, (float) turnYaw, (float) turnPitch);
     }
 
-    /** Fraction of the remaining angle to close this frame, made frame-rate independent. */
-    private static float smoothingAlpha(float strengthPercent, float dt) {
-        if (strengthPercent <= 0) return 0f;
-        if (strengthPercent >= 100) return 1f;
-        // strength is defined at a 20 Hz reference so the feel is stable across frame rates.
-        return 1f - (float) Math.pow(1f - strengthPercent / 100f, dt * 20f);
-    }
-
-    private void applyDelta(Entity entity, float dYaw, float dPitch) {
+    private void applyTurn(Entity entity, float dYaw, float dPitch) {
         entity.setYRot(entity.getYRot() + dYaw);
         entity.setXRot(Mth.clamp(entity.getXRot() + dPitch, -90f, 90f));
-        // Advance the previous-rotation fields too, so the render view doesn't stutter.
+        // Advance the previous-rotation fields too, so the body and third-person view don't stutter.
         entity.yRotO += dYaw;
         entity.xRotO = Mth.clamp(entity.xRotO + dPitch, -90f, 90f);
     }
 
-    private float[] jitter(long now, float dt) {
-        if (now >= jitterNextNanos) {
-            float amp = jitter.floatValue();
-            jitterTargetYaw = (ThreadLocalRandom.current().nextFloat() * 2f - 1f) * amp;
-            jitterTargetPitch = (ThreadLocalRandom.current().nextFloat() * 2f - 1f) * amp * 0.6f;
-            jitterNextNanos = now + (long) (120_000_000L + ThreadLocalRandom.current().nextLong(120_000_000L));
-        }
-        float ease = Math.min(1f, dt * 6f);
-        jitterYaw += (jitterTargetYaw - jitterYaw) * ease;
-        jitterPitch += (jitterTargetPitch - jitterPitch) * ease;
-        return new float[] {jitterYaw * dt * 20f, jitterPitch * dt * 20f};
+    /** The target's hitbox where it's drawn this frame, between its last two tick positions. */
+    private static AABB drawnBox(Entity entity, float partialTick) {
+        return entity.getBoundingBox().move(entity.getPosition(partialTick).subtract(entity.position()));
     }
 
-    private Vec3 aimPointFor(LocalPlayer player, LivingEntity t, Vec3 eye) {
-        return switch (aimPoint.get()) {
-            case EYES -> t.getEyePosition();
-            case BODY -> t.position().add(0, t.getBbHeight() / 2f, 0);
-            case NEAREST -> RotationUtil.closestPoint(eye, t.getBoundingBox());
+    /** Yaw and pitch to aim at, or null when the crosshair is already where it should be. */
+    private float[] aimRotation(Vec3 eye, Vec3 look, AABB box, float partialTick) {
+        Vec3 point = switch (aimAt.get()) {
+            case HEAD -> target.getEyePosition(partialTick);
+            case BODY -> box.getCenter();
+            case CLOSEST -> {
+                // Aim a little inside the edge, so the crosshair ends up on the target.
+                AABB inner = box.deflate(box.getXsize() * 0.2, box.getYsize() * 0.1, box.getZsize() * 0.2);
+                if (RotationUtil.rayHits(eye, look, inner, range.get() + 4)) yield null;
+                yield RotationUtil.closestPointToRay(eye, look, inner);
+            }
         };
+        return point == null ? null : RotationUtil.toRotation(eye, point);
     }
 
-    private Vec3 leadFor(LivingEntity t, float dt) {
-        Vec3 pos = t.position();
-        Vec3 lead = Vec3.ZERO;
-        if (t == velTarget && velLastPos != null && dt > 0) {
-            Vec3 instantaneous = pos.subtract(velLastPos).scale(1.0 / dt);
-            smoothedVel = smoothedVel.add(instantaneous.subtract(smoothedVel).scale(Math.min(1.0, dt * 10.0)));
-            double leadSeconds = prediction.get() / 100.0 * 0.15;
-            lead = smoothedVel.scale(leadSeconds);
-        } else {
-            smoothedVel = Vec3.ZERO;
+    /** Tracks how fast the target's direction is changing, so the assist can move along with it. */
+    private void measureTargetRate(Vec3 eye, Vec3 center, double dt) {
+        float[] direction = RotationUtil.toRotation(eye, center);
+        if (haveLastDirection) {
+            double yawRate = Mth.wrapDegrees(direction[0] - lastTargetYaw) / dt;
+            double pitchRate = (direction[1] - lastTargetPitch) / dt;
+            double blend = 1 - Math.exp(-dt / RATE_SMOOTHING_SECONDS);
+            targetYawRate += (yawRate - targetYawRate) * blend;
+            targetPitchRate += (pitchRate - targetPitchRate) * blend;
         }
-        velTarget = t;
-        velLastPos = pos;
-        return lead;
+        lastTargetYaw = direction[0];
+        lastTargetPitch = direction[1];
+        haveLastDirection = true;
     }
 
-    private LivingEntity selectTarget(LocalPlayer player, Minecraft mc, long now) {
-        Vec3 eye = player.getEyePosition();
-        float curYaw = player.getYRot();
-        float curPitch = player.getXRot();
-        double rangeValue = range.get();
-        float fovLimit = fov.floatValue() / 2f;
+    private double fadeIn(long now) {
+        return smoothstep((now - acquiredAtNanos) / 1.0e9 / FADE_IN_SECONDS);
+    }
 
-        // Keep the current target while it's still valid — avoids flicking between equals.
-        if (target != null && isValidTarget(target, player, mc, eye, curYaw, curPitch, rangeValue, fovLimit)) {
-            return target;
-        }
+    private double fovFade(Vec3 eye, Vec3 look, AABB box) {
+        double half = fov.get() / 2.0;
+        double angle = angleTo(eye, look, box);
+        return 1 - smoothstep((angle - half * FOV_FADE_START) / (half * (1 - FOV_FADE_START)));
+    }
+
+    private double rangeFade(Vec3 eye, AABB box) {
+        double distance = Math.sqrt(box.distanceToSqr(eye));
+        return 1 - smoothstep((distance - (range.get() - RANGE_FADE_BLOCKS)) / RANGE_FADE_BLOCKS);
+    }
+
+    private static double smoothstep(double x) {
+        double t = Mth.clamp(x, 0.0, 1.0);
+        return t * t * (3 - 2 * t);
+    }
+
+    /** Degrees the crosshair has to turn to reach the nearest part of the box (0 when it's on it). */
+    private static double angleTo(Vec3 eye, Vec3 look, AABB box) {
+        if (RotationUtil.rayHits(eye, look, box, 64)) return 0;
+        Vec3 toPoint = RotationUtil.closestPointToRay(eye, look, box).subtract(eye).normalize();
+        return Math.toDegrees(Math.acos(Mth.clamp(toPoint.dot(look), -1.0, 1.0)));
+    }
+
+    private LivingEntity selectTarget(LocalPlayer player, Minecraft mc, Vec3 eye, Vec3 look, float partialTick) {
+        // Keep the current target while it's still valid, so the assist doesn't flick between equals.
+        if (target != null && isValidTarget(target, player, mc, eye, look, partialTick)) return target;
 
         LivingEntity best = null;
         double bestScore = Double.MAX_VALUE;
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (!(entity instanceof LivingEntity living)) continue;
-            if (!isValidTarget(living, player, mc, eye, curYaw, curPitch, rangeValue, fovLimit)) continue;
-            double score = score(living, eye, curYaw, curPitch);
+            if (!isValidTarget(living, player, mc, eye, look, partialTick)) continue;
+            double score = score(living, eye, look, partialTick);
             if (score < bestScore) {
                 bestScore = score;
                 best = living;
             }
         }
-
-        if (best != null && best != target) {
-            engageAtNanos = now + (long) (reaction.get() * 1_000_000.0);
-        }
-        target = best;
         return best;
     }
 
-    private boolean isValidTarget(LivingEntity e, LocalPlayer player, Minecraft mc, Vec3 eye,
-                                  float curYaw, float curPitch, double rangeValue, float fovLimit) {
-        if (e == player || !e.isAlive() || e.isSpectator()) return false;
-        if (e instanceof Player && e.isSpectator()) return false;
-        if (!typeAllowed(e)) return false;
+    private boolean isValidTarget(LivingEntity e, LocalPlayer player, Minecraft mc, Vec3 eye, Vec3 look, float partialTick) {
+        if (e == player || !e.isAlive() || e.isSpectator() || e instanceof ArmorStand) return false;
+        if (e instanceof Player ? !players.isOn() : !mobs.isOn()) return false;
         if (player.isAlliedTo(e)) return false;
 
-        Vec3 point = RotationUtil.closestPoint(eye, e.getBoundingBox());
-        if (eye.distanceToSqr(point) > rangeValue * rangeValue) return false;
-
-        float[] rot = RotationUtil.toRotation(eye, point);
-        if (RotationUtil.angleBetween(curYaw, curPitch, rot[0], rot[1]) > fovLimit) return false;
-
-        return !requireVisible.isOn() || isVisible(player, mc, eye, e);
+        AABB box = drawnBox(e, partialTick);
+        if (box.distanceToSqr(eye) > range.get() * range.get()) return false;
+        if (angleTo(eye, look, box) > fov.get() / 2.0) return false;
+        return throughWalls.isOn() || isVisible(player, mc, eye, box, e.getEyePosition(partialTick));
     }
 
-    private boolean typeAllowed(LivingEntity e) {
-        if (e instanceof Player) return players.isOn();
-        if (e instanceof Monster) return hostiles.isOn();
-        if (e instanceof Animal) return passives.isOn();
-        // Anything else living (villagers, etc.) counts as passive.
-        return passives.isOn();
-    }
-
-    private boolean isVisible(LocalPlayer player, Minecraft mc, Vec3 eye, LivingEntity e) {
-        // Check a few points on the hitbox so a partly-hidden target still counts.
-        AABB box = e.getBoundingBox();
-        Vec3[] samples = {
-            e.getEyePosition(),
-            box.getCenter(),
-            RotationUtil.closestPoint(eye, box)
-        };
+    private static boolean isVisible(LocalPlayer player, Minecraft mc, Vec3 eye, AABB box, Vec3 targetEye) {
+        // Check a few points on the hitbox so a partly hidden target still counts.
+        Vec3[] samples = {targetEye, box.getCenter(), RotationUtil.closestPoint(eye, box)};
         for (Vec3 sample : samples) {
             HitResult hit = mc.level.clip(new ClipContext(eye, sample, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
             if (hit.getType() == HitResult.Type.MISS) return true;
@@ -276,17 +260,13 @@ public final class AimAssist extends Module {
         return false;
     }
 
-    private double score(LivingEntity e, Vec3 eye, float curYaw, float curPitch) {
-        Vec3 point = RotationUtil.closestPoint(eye, e.getBoundingBox());
-        float[] rot = RotationUtil.toRotation(eye, point);
-        double angle = RotationUtil.angleBetween(curYaw, curPitch, rot[0], rot[1]);
-        double distance = Math.sqrt(eye.distanceToSqr(point));
-        double health = e.getHealth();
-        return switch (targetMode.get()) {
+    private double score(LivingEntity e, Vec3 eye, Vec3 look, float partialTick) {
+        AABB box = drawnBox(e, partialTick);
+        double angle = angleTo(eye, look, box);
+        return switch (priority.get()) {
             case CROSSHAIR -> angle;
-            case DISTANCE -> distance;
-            case HEALTH -> health * 100.0 + distance;
-            case SMART -> angle * 1.0 + distance * 3.0 + health * 0.3;
+            case NEAREST -> Math.sqrt(box.distanceToSqr(eye));
+            case LOWEST_HEALTH -> e.getHealth() * 1000.0 + angle;
         };
     }
 }

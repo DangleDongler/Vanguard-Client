@@ -4,6 +4,7 @@ import dev.vanguard.config.ConfigManager;
 import dev.vanguard.gui.clickgui.ClickGuiScreen;
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.combat.AimAssist;
+import dev.vanguard.module.modules.combat.TriggerBot;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.Identifier;
@@ -20,6 +21,7 @@ public final class Vanguard implements ClientModInitializer {
     private ConfigManager config;
     private ClickGuiScreen clickGui;
     private AimAssist aimAssist;
+    private TriggerBot triggerBot;
 
     public static Vanguard get() {
         return instance;
@@ -36,6 +38,7 @@ public final class Vanguard implements ClientModInitializer {
         modules = new ModuleManager();
         modules.init();
         aimAssist = modules.get(AimAssist.class);
+        triggerBot = modules.get(TriggerBot.class);
 
         config = new ConfigManager(FabricLoader.getInstance().getGameDir().resolve(MOD_ID), modules);
         config.load();
@@ -51,6 +54,11 @@ public final class Vanguard implements ClientModInitializer {
     /** Cached for the per-frame aim-assist hook. Null until {@link #onInitializeClient()} runs. */
     public AimAssist aimAssist() {
         return aimAssist;
+    }
+
+    /** Cached for the per-frame and per-attack hooks. Null until {@link #onInitializeClient()} runs. */
+    public TriggerBot triggerBot() {
+        return triggerBot;
     }
 
     public ConfigManager config() {

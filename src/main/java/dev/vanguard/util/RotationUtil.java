@@ -31,6 +31,20 @@ public final class RotationUtil {
             Mth.clamp(point.z, box.minZ, box.maxZ));
     }
 
+    /**
+     * The point on {@code box} that needs the least turning to aim at from {@code origin} looking
+     * along {@code direction}: the spot on the ray level with the box's center, pulled into the box.
+     */
+    public static Vec3 closestPointToRay(Vec3 origin, Vec3 direction, AABB box) {
+        double along = Math.max(0.0, box.getCenter().subtract(origin).dot(direction));
+        return closestPoint(origin.add(direction.scale(along)), box);
+    }
+
+    /** Whether a ray from {@code origin} along {@code direction} passes through {@code box}. */
+    public static boolean rayHits(Vec3 origin, Vec3 direction, AABB box, double maxDistance) {
+        return box.contains(origin) || box.clip(origin, origin.add(direction.scale(maxDistance))).isPresent();
+    }
+
     /** Straight-line angle (degrees) between two yaw/pitch rotations. */
     public static float angleBetween(float yaw1, float pitch1, float yaw2, float pitch2) {
         float dYaw = Mth.wrapDegrees(yaw2 - yaw1);

@@ -4,7 +4,10 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "EntityTurnMixin",
-    "KeyboardHandlerMixin"
+    "KeyboardHandlerMixin",
+    "LocalPlayerAccessor",
+    "MinecraftInvoker",
+    "MultiPlayerGameModeMixin"
   ],
   "injectors": {
     "defaultRequire": 1
