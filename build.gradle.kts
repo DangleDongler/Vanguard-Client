@@ -14,14 +14,15 @@ repositories {
 
 dependencies {
     minecraft(libs.minecraft)
-    implementation(libs.fabric.loader)
+    mappings(loom.officialMojangMappings())
+    modImplementation(libs.fabric.loader)
 
     // Only the Fabric API modules we need, bundled so players don't have to install Fabric API.
     // The resource loader is what makes the game load our assets (shaders, fonts).
     val fabricApiVersion = libs.versions.fabric.api.get()
     for (module in listOf("fabric-api-base", "fabric-resource-loader-v1")) {
         val dependency = fabricApi.module(module, fabricApiVersion)
-        implementation(dependency)
+        modImplementation(dependency)
         include(dependency)
     }
 
@@ -61,5 +62,5 @@ tasks {
 }
 
 loom {
-    accessWidenerPath = file("src/main/resources/vanguard.classtweaker")
+    accessWidenerPath = file("src/main/resources/vanguard.accesswidener")
 }

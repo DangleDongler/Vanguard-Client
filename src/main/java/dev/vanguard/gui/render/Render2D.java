@@ -2,7 +2,7 @@ package dev.vanguard.gui.render;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.FontDescription;
 import net.minecraft.network.chat.Style;
@@ -25,7 +25,7 @@ public final class Render2D {
     private static final int SOFT = 1;
 
     private final Minecraft mc = Minecraft.getInstance();
-    private GuiGraphicsExtractor graphics;
+    private GuiGraphics graphics;
 
     private float alpha = 1f;
     private float[] alphaStack = new float[8];
@@ -50,7 +50,7 @@ public final class Render2D {
      * @param customFont  use the bundled Inter font instead of Minecraft's
      * @param pixelsPerUnit physical pixels per GUI unit, used to pick a crisp font rasterization
      */
-    public void begin(GuiGraphicsExtractor graphics, boolean customFont, float pixelsPerUnit) {
+    public void begin(GuiGraphics graphics, boolean customFont, float pixelsPerUnit) {
         this.graphics = graphics;
         this.alpha = 1f;
         this.alphaDepth = 0;
@@ -74,7 +74,7 @@ public final class Render2D {
         return Style.EMPTY.withFont(new FontDescription.Resource(dev.vanguard.Vanguard.id(prefix + oversample)));
     }
 
-    public GuiGraphicsExtractor graphics() {
+    public GuiGraphics graphics() {
         return graphics;
     }
 
@@ -365,7 +365,7 @@ public final class Render2D {
             pose.translate(x, y);
             if (scale != 1f) pose.scale(scale);
             // Minecraft's pixel font needs its drop shadow to read well; Inter doesn't.
-            graphics.text(mc.font, sequence, 0, 0, c, !customFont);
+            graphics.drawString(mc.font, sequence, 0, 0, c, !customFont);
             pose.popMatrix();
         }
         return mc.font.getSplitter().stringWidth(sequence) * scale;
@@ -495,7 +495,7 @@ public final class Render2D {
             bounds = scissor.intersection(bounds);
             if (bounds == null) return;
         }
-        graphics.guiRenderState.addGuiElement(new ShapeRenderState(
+        graphics.guiRenderState.submitGuiElement(new ShapeRenderState(
             pose,
             Arrays.copyOf(vertices, vertexCount * ShapeRenderState.FLOATS_PER_VERTEX),
             Arrays.copyOf(colors, vertexCount),

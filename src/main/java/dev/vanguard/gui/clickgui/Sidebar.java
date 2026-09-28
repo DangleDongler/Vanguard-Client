@@ -7,8 +7,9 @@ import dev.vanguard.gui.render.Colors;
 import dev.vanguard.gui.render.Icons;
 import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.module.Category;
+import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.components.PlayerFaceExtractor;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.multiplayer.ServerData;
 import org.joml.Matrix3x2fStack;
@@ -67,7 +68,7 @@ final class Sidebar {
         r.roundedGradientV(logoX, logoY, logo, logo, 5f, theme.accentSecondary(), theme.accent());
         r.chevron(logoX + logo / 2f, logoY + logo / 2f + 0.5f, 8f, (float) (Math.PI / 2), 1.8f, 0xFFFFFFFF);
         r.text("Vanguard", logoX + logo + 7f, logoY + 1f, Theme.TEXT, true);
-        r.small(version + "  ·  26.2", logoX + logo + 7f, logoY + 11f, Theme.TEXT_MUTED);
+        r.small(version + "  ·  " + SharedConstants.getCurrentVersion().name(), logoX + logo + 7f, logoY + 11f, Theme.TEXT_MUTED);
 
         float cy = y + PAD + 29f;
         search.render(ctx, x + PAD, cy, WIDTH - PAD * 2);
@@ -103,7 +104,7 @@ final class Sidebar {
             pose.pushMatrix();
             pose.translate(faceX, faceY);
             pose.scale(face / 8f);
-            PlayerFaceExtractor.extractRenderState(r.graphics(), mc.player.getSkin(), 0, 0, 8, r.withCurrentAlpha(0xFFFFFFFF));
+            PlayerFaceRenderer.draw(r.graphics(), mc.player.getSkin(), 0, 0, 8, r.withCurrentAlpha(0xFFFFFFFF));
             pose.popMatrix();
             // Round the face's corners by covering them with the card color.
             r.roundedOutline(faceX - 1f, faceY - 1f, face + 2f, face + 2f, 4f, 1.6f, Theme.FIELD);

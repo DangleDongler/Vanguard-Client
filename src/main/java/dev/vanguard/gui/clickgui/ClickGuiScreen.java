@@ -14,7 +14,7 @@ import dev.vanguard.module.Category;
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.client.ClickGuiModule;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -238,7 +238,7 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     }
 
     @Override
-    public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         // Menu blur strength is Minecraft's own accessibility option; 0 means the player turned it off.
         if (settings.blur.isOn() && minecraft.options.getMenuBackgroundBlurriness() >= 1) {
             graphics.blurBeforeThisStratum();
@@ -246,7 +246,7 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         // Character events arrive in the same input poll as their key press, so one frame later
         // any character belonging to a swallowed key has been delivered.
         swallowChar = false;
@@ -259,7 +259,7 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
         if (closing && openProgress.isDone()) {
             // Leave the screen after this frame rather than in the middle of drawing it.
             minecraft.execute(() -> {
-                if (minecraft.gui.screen() == this) minecraft.gui.setScreen(null);
+                if (minecraft.screen == this) minecraft.setScreen(null);
             });
         }
 

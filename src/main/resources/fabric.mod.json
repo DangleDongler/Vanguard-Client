@@ -26,5 +26,5 @@
     "java": ">=${jdk}",
     "fabric-resource-loader-v1": "*"
   },
-  "accessWidener": "vanguard.classtweaker"
+  "accessWidener": "vanguard.accesswidener"
 }

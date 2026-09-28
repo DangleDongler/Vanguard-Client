@@ -1,6 +1,6 @@
 # Vanguard
 
-A Fabric utility client for anarchy servers, built for **Minecraft 26.2** (the version 2b2t runs).
+A Fabric utility client for anarchy servers, built for **Minecraft 1.21.11**.
 
 ![ClickGUI](docs/clickgui.png)
 
@@ -43,9 +43,16 @@ Settings (Combat tab):
 - While Attacking - only assist while holding attack.
 - Require Visible - ignore targets you can't see (line-of-sight raycast).
 
-Verified in the live 26.2 client: the view is driven from a 45 degree offset onto the target and
-eases in (measured angle-to-target 9.5 -> 3.9 -> 1.7 degrees over successive frames), stops at the
-deadzone, and releases targets outside range/FOV.
+Verified on 1.21.11 with both the dev client and the release jar in a production Fabric install.
+Starting at 0/0 (yaw/pitch) with a pig about 34 degrees to the side, the view eased onto it:
+0.0/0.0 -> 17.5/6.2 -> 30.5/13.3 over about two seconds, stopping on the pig's hitbox.
+
+## Installing
+
+1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer for Minecraft 1.21.11.
+2. Put `vanguard-0.1.0+1.21.11.jar` in your `.minecraft/mods` folder. Fabric API isn't required;
+   the two modules Vanguard needs are bundled inside the jar.
+3. Launch the Fabric 1.21.11 profile and press Right Shift in game.
 
 ## Controls
 
@@ -62,15 +69,13 @@ deadzone, and releases targets outside range/FOV.
 
 ## Building
 
-You need a JDK 21 or newer to start Gradle. Gradle downloads JDK 25 on its own, since Minecraft 26.2 and Loom need it.
+You need a JDK 21 or newer to start Gradle. Gradle downloads JDK 25 on its own to run Loom; the mod itself is compiled for Java 21, like Minecraft 1.21.11.
 
 ```sh
 ./gradlew build        # jar in build/libs/
 ./gradlew test         # unit tests
 ./gradlew runClient    # dev client with the mod loaded
 ```
-
-The jar bundles the two Fabric API modules it needs (`fabric-api-base` and `fabric-resource-loader-v1`), so you only need Fabric Loader installed to use it.
 
 ## Layout
 
@@ -94,4 +99,4 @@ src/main/resources/assets/vanguard/
 
 ### How rendering works
 
-Minecraft 26.2 builds the GUI as a list of render states and draws them later, layered by their screen bounds. `Render2D` adds its own `GuiElementRenderState`s that use the `vanguard:pipeline/shape` pipeline. Rounded corners are quarter-circle quads, so the fragment shader only has to measure distance from the corner to get anti-aliased edges, rings and shadow falloff. The shape type and its parameter are packed into the texture coordinates, which lets every shape share one vertex format and batch together.
+Minecraft 1.21.11 builds the GUI as a list of render states and draws them later, layered by their screen bounds. `Render2D` adds its own `GuiElementRenderState`s that use the `vanguard:pipeline/shape` pipeline. Rounded corners are quarter-circle quads, so the fragment shader only has to measure distance from the corner to get anti-aliased edges, rings and shadow falloff. The shape type and its parameter are packed into the texture coordinates, which lets every shape share one vertex format and batch together.

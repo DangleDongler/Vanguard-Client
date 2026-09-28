@@ -100,7 +100,7 @@ public final class AimAssist extends Module {
     public void onTurn(LocalPlayer player, double mouseXo, double mouseYo) {
         if (!isEnabled()) return;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.gui.screen() != null) return;
+        if (mc.level == null || mc.screen != null) return;
 
         long now = System.nanoTime();
         float dt = lastFrameNanos == 0 ? 0f : (float) Math.min((now - lastFrameNanos) / 1.0e9, 0.1);

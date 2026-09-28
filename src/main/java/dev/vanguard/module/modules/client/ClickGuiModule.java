@@ -43,14 +43,14 @@ public final class ClickGuiModule extends Module {
     @Override
     protected void onEnable() {
         Minecraft mc = Minecraft.getInstance();
-        if (!(mc.gui.screen() instanceof ClickGuiScreen)) {
-            mc.gui.setScreen(Vanguard.get().clickGui());
+        if (!(mc.screen instanceof ClickGuiScreen)) {
+            mc.setScreen(Vanguard.get().clickGui());
         }
     }
 
     @Override
     protected void onDisable() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.gui.screen() instanceof ClickGuiScreen screen) screen.close();
+        if (mc.screen instanceof ClickGuiScreen screen) screen.close();
     }
 }
