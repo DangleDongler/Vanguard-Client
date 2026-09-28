@@ -5,7 +5,9 @@ import dev.vanguard.gui.clickgui.ClickGuiScreen;
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.combat.AimAssist;
 import dev.vanguard.module.modules.combat.ShieldBreaker;
+import dev.vanguard.module.modules.combat.SprintReset;
 import dev.vanguard.module.modules.combat.TriggerBot;
+import dev.vanguard.util.ServerSprintTracker;
 import dev.vanguard.util.ShieldTracker;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
@@ -25,7 +27,9 @@ public final class Vanguard implements ClientModInitializer {
     private AimAssist aimAssist;
     private TriggerBot triggerBot;
     private ShieldBreaker shieldBreaker;
+    private SprintReset sprintReset;
     private final ShieldTracker shieldTracker = new ShieldTracker();
+    private final ServerSprintTracker sprintTracker = new ServerSprintTracker();
 
     public static Vanguard get() {
         return instance;
@@ -44,6 +48,7 @@ public final class Vanguard implements ClientModInitializer {
         aimAssist = modules.get(AimAssist.class);
         triggerBot = modules.get(TriggerBot.class);
         shieldBreaker = modules.get(ShieldBreaker.class);
+        sprintReset = modules.get(SprintReset.class);
 
         config = new ConfigManager(FabricLoader.getInstance().getGameDir().resolve(MOD_ID), modules);
         config.load();
@@ -69,6 +74,16 @@ public final class Vanguard implements ClientModInitializer {
     /** Cached for the per-frame, per-attack and per-tick hooks. Null until {@link #onInitializeClient()} runs. */
     public ShieldBreaker shieldBreaker() {
         return shieldBreaker;
+    }
+
+    /** Cached for the per-tick input hook and TriggerBot. Null until {@link #onInitializeClient()} runs. */
+    public SprintReset sprintReset() {
+        return sprintReset;
+    }
+
+    /** Whether the server thinks you're sprinting. Shared by the combat modules. */
+    public ServerSprintTracker sprintTracker() {
+        return sprintTracker;
     }
 
     /** Other players' shields, as the server reports them. Shared by the combat modules. */

@@ -6,6 +6,7 @@ import dev.vanguard.module.Category;
 import dev.vanguard.module.Module;
 import dev.vanguard.setting.BoolSetting;
 import dev.vanguard.util.Crosshair;
+import dev.vanguard.util.Latency;
 import dev.vanguard.util.ShieldTracker;
 import dev.vanguard.util.Shields;
 import net.minecraft.client.Minecraft;
@@ -70,7 +71,7 @@ public final class ShieldBreaker extends Module {
         ShieldTracker shields = Vanguard.get().shieldTracker();
         Player target = mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player p ? p : null;
 
-        if (target == null || !needsBreaking(player, target, shields, ShieldTracker.answerTicks(mc))) {
+        if (target == null || !needsBreaking(player, target, shields, Latency.answerTicks(mc))) {
             if (swapBack.isOn()) restoreSlot(player);
             return;
         }
@@ -97,7 +98,7 @@ public final class ShieldBreaker extends Module {
         if (!Shields.disablesShields(player.getMainHandItem()) && findAxeSlot(player.getInventory()) < 0) return;
 
         ShieldTracker shields = Vanguard.get().shieldTracker();
-        int answerTicks = ShieldTracker.answerTicks(mc);
+        int answerTicks = Latency.answerTicks(mc);
         // An axe hit uses your normal reach, whatever you're holding now.
         EntityHitResult hit = Crosshair.pick(mc, player, player.entityInteractionRange(),
             living -> living instanceof Player target && needsBreaking(player, target, shields, answerTicks), true);

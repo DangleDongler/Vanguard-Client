@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Reads a few of the server's packets: swings (for Hit Select) and sounds (shield breaks and blocks,
- * for the shield tracker). Each handler first runs on the network thread, which only hands the
+ * for the shield tracker; the sounds of your own hits, for the sprint tracker). Each handler first runs on the network thread, which only hands the
  * packet over to the game thread; the second run, on the game thread, is the one that reaches the
  * end of the method, so these see each packet once, in order with the rest of the game.
  */
@@ -36,5 +36,6 @@ public abstract class ClientPacketListenerMixin {
         Vanguard vanguard = Vanguard.get();
         if (vanguard == null) return;
         vanguard.shieldTracker().onSound(Minecraft.getInstance(), packet.getSound(), packet.getX(), packet.getY(), packet.getZ());
+        vanguard.sprintTracker().onSound(packet.getSound(), packet.getX(), packet.getY(), packet.getZ());
     }
 }

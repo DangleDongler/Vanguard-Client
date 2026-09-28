@@ -19,7 +19,7 @@ The foundation and the **ClickGUI** are done:
 - Accent color or rainbow, background blur and dim, adjustable animation speed, hover descriptions
 - A module/setting framework and a JSON config (`.minecraft/vanguard/config.json`), which also remembers open tabs and expanded modules
 
-AimAssist, TriggerBot and ShieldBreaker work. The other combat, movement and render modules are **placeholders**: they declare their settings so the GUI has real content, but they don't do anything yet.
+AimAssist, TriggerBot, ShieldBreaker and SprintReset work. The other combat, movement and render modules are **placeholders**: they declare their settings so the GUI has real content, but they don't do anything yet.
 
 ## Aim Assist
 
@@ -154,6 +154,71 @@ delay), and it was broken again straight away. Between breaks, TriggerBot's swor
 136 damage in 15 seconds against a shield that was always being raised. No swaps happen from behind
 the shield, with no axe in the hotbar, or while idle with Automatic off. With it off, one click on
 the shield became an axe hit that broke it.
+
+## Sprint Reset
+
+Restarts your sprint between hits, the way a W-tap or S-tap does, so every hit is a sprint hit.
+
+Why it's needed: a charged hit while the server thinks you're sprinting adds 0.5 knockback in the
+direction you face, on top of the normal 0.4. Landing it makes the server stop your sprint, but it
+doesn't tell your game, which keeps you running. So without a reset, only your first hit gets
+sprint knockback. The rest go out while the server thinks you're walking, until your sprint really
+stops and starts again. Sneaking, using an item or letting go of the sprint key doesn't do that in
+1.21.11. Only a tick without moving forward does.
+
+Settings (Combat tab):
+
+- Method - W-Tap (default): lets go of forward for a single tick just before your weapon is
+  ready. S-Tap: right after a hit, steps back while the opponent is close enough to hit you, then
+  sprints back in as your weapon gets ready. If they're already out of reach, it's a W-tap.
+- Keep Crits - doesn't reset while you're in the air, so your falling hits still crit (a sprint hit
+  can't crit). On the ground it always resets.
+- Skip Runners - doesn't reset when your target is running away (moving away while facing away):
+  extra knockback only helps them escape.
+
+How it works: it changes your movement keys for that tick, as if you had tapped them. The game
+itself then stops the sprint, sends the usual stop, and starts the sprint again the next tick with
+the sprint key. There are no extra packets and nothing out of the normal order, and the key state
+the server sees matches a real tap. It only resets when the server really thinks you've stopped
+sprinting (`ServerSprintTracker`), while you're holding forward, and in a fight: the last thing you
+hit, or another player, is within 12 blocks. It never lets go of forward on the tick you jump, which
+would lose the sprint jump's boost. It doesn't reset while you're eating, sneaking or in water,
+anywhere your sprint couldn't start again.
+
+W-Tap waits until 2 ticks before your weapon can land a sprint hit. That keeps the sprint-crit
+state (falling hits crit) as long as possible, and decides with the latest information. The reset
+takes two ticks, so it finishes a tick early.
+
+S-Tap never steps back onto a drop of more than one block, or into lava, fire, magma, cactus and
+the like. It does a W-tap instead.
+
+The server tracker also listens for the sounds of your own hits. The server plays a knockback sound
+for every sprint hit, then a "no damage" sound if it didn't land (a shield, or the target's damage
+immunity), in which case your sprint was never stopped. So it doesn't reset when it doesn't need to,
+and TriggerBot knows when a crit is possible.
+
+With TriggerBot: while a reset is under way, a hit that can't crit waits for it (a few ticks at
+most), so it gets sprint knockback instead.
+
+Tested in a production Fabric install (loader 0.18.4) against a Carpet fake player that can be
+knocked back, holding forward and sprint with TriggerBot and AimAssist, counting every hit as the
+server saw it. Hits after the test let go of the keys are left out:
+
+| Scenario | Sprint hits after the first | Notes |
+| --- | --- | --- |
+| Chase, off | 0 of 3 | Ran into the target after 4 hits |
+| Chase, W-Tap (two runs) | 11 of 11, 10 of 10 | A tick off forward per hit, about 0.28 blocks of ground each |
+| Chase, S-Tap | 9 of 9 | |
+| Target walking at you, off | 0 of 1 | Ran through it after 2 hits |
+| Target walking at you, S-Tap | 11 of 11 | Kept its spacing: 12 hits in 8 seconds |
+| Sprint-jumping after a target walking away, Keep Crits on | 0 of 3, all 3 crits | No resets in the air |
+| Sprint-jumping after a target walking away, Keep Crits off | 9 of 9 | Resets in the air |
+| Target running away, Skip Runners on | 0 of 10 (no resets) | 11 hits in 14 seconds |
+| Target running away, Skip Runners off | 5 of 5 | Only 6 hits: knockback pushed it away |
+
+The server measured 0.70 blocks per tick of knockback from each sprint hit, against 0.415 from a
+normal hit. With S-Tap, a strip of hazards behind you turned the step back into a plain W-tap, and
+the step back resumed on safe ground.
 
 ## Installing
 

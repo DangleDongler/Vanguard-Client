@@ -3,7 +3,6 @@ package dev.vanguard.util;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.sounds.SoundEvent;
@@ -146,11 +145,6 @@ public final class ShieldTracker {
 
     // --- Glue to the game ---------------------------------------------------------------------
 
-    /** How long to wait for the server's answer to a break: a round trip plus a little. */
-    public static int answerTicks(Minecraft mc) {
-        return Math.max(6, 2 * latencyTicks(mc) + 4);
-    }
-
     /** Called for every positioned sound the server sends. */
     public void onSound(Minecraft mc, Holder<SoundEvent> sound, double x, double y, double z) {
         boolean broke = sound.value() == SoundEvents.SHIELD_BREAK.value();
@@ -160,10 +154,10 @@ public final class ShieldTracker {
         Player owner = nearestPlayer(mc, new Vec3(x, y, z));
         if (owner == null) return;
         if (blocked) {
-            onBlocked(owner.getId(), answerTicks(mc));
+            onBlocked(owner.getId(), Latency.answerTicks(mc));
         } else {
             // The cooldown started on the server a moment ago; count from then.
-            onBreakConfirmed(owner.getId(), Math.max(0, downTicks(owner) - latencyTicks(mc) / 2 - 1));
+            onBreakConfirmed(owner.getId(), Math.max(0, downTicks(owner) - Latency.ticks(mc) / 2 - 1));
         }
     }
 
@@ -190,12 +184,5 @@ public final class ShieldTracker {
             }
         }
         return DEFAULT_DOWN_TICKS;
-    }
-
-    /** Your ping, in ticks. */
-    private static int latencyTicks(Minecraft mc) {
-        if (mc.player == null || mc.getConnection() == null) return 0;
-        PlayerInfo info = mc.getConnection().getPlayerInfo(mc.player.getUUID());
-        return info == null ? 0 : (info.getLatency() + 49) / 50;
     }
 }

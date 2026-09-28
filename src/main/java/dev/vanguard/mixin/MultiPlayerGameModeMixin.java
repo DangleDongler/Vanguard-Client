@@ -1,7 +1,11 @@
 package dev.vanguard.mixin;
 
 import dev.vanguard.Vanguard;
-import dev.vanguard.module.modules.combat.TriggerBot;
+import dev.vanguard.module.modules.combat.SprintReset;
+import dev.vanguard.util.Latency;
+import dev.vanguard.util.ServerSprintTracker;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -16,8 +20,11 @@ public abstract class MultiPlayerGameModeMixin {
     @Inject(method = "attack", at = @At("HEAD"))
     private void vanguard$onAttack(Player player, Entity target, CallbackInfo ci) {
         Vanguard vanguard = Vanguard.get();
-        if (vanguard == null) return;
-        TriggerBot triggerBot = vanguard.triggerBot();
-        if (triggerBot != null) triggerBot.onAttackSent(player);
+        if (vanguard == null || !(player instanceof LocalPlayer localPlayer)) return;
+        ServerSprintTracker sprint = vanguard.sprintTracker();
+        sprint.observeSent(((LocalPlayerAccessor) localPlayer).vanguard$wasSprinting());
+        sprint.onAttack(player.getAttackStrengthScale(0.5f), player.position(), Latency.answerTicks(Minecraft.getInstance()));
+        SprintReset sprintReset = vanguard.sprintReset();
+        if (sprintReset != null) sprintReset.onAttack(target);
     }
 }

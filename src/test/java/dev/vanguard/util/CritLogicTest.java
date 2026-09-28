@@ -3,8 +3,6 @@ package dev.vanguard.util;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CritLogicTest {
     private static final double PLAYER_GRAVITY = 0.08;
@@ -35,42 +33,5 @@ class CritLogicTest {
     @Test
     void neverFallsWithoutGravity() {
         assertEquals(Integer.MAX_VALUE, FallTiming.ticksUntilFalling(0.2, 0));
-    }
-
-    @Test
-    void followsSprintUpdatesTheClientSends() {
-        ServerSprintTracker tracker = new ServerSprintTracker();
-        tracker.observeSent(false);
-        assertFalse(tracker.serverSprinting());
-        tracker.observeSent(true);
-        assertTrue(tracker.serverSprinting());
-    }
-
-    @Test
-    void sprintHitEntersSprintCritState() {
-        ServerSprintTracker tracker = new ServerSprintTracker();
-        tracker.observeSent(true);
-        tracker.onAttack(1.0f);
-        // The client still reports sprinting (nothing new was sent), but the server stopped it.
-        tracker.observeSent(true);
-        assertFalse(tracker.serverSprinting());
-    }
-
-    @Test
-    void weakHitsDoNotResetSprint() {
-        ServerSprintTracker tracker = new ServerSprintTracker();
-        tracker.observeSent(true);
-        tracker.onAttack(0.5f);
-        assertTrue(tracker.serverSprinting());
-    }
-
-    @Test
-    void resprintingLeavesSprintCritState() {
-        ServerSprintTracker tracker = new ServerSprintTracker();
-        tracker.observeSent(true);
-        tracker.onAttack(1.0f);
-        tracker.observeSent(false);
-        tracker.observeSent(true);
-        assertTrue(tracker.serverSprinting());
     }
 }

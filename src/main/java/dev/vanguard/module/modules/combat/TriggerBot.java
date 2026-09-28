@@ -1,7 +1,6 @@
 package dev.vanguard.module.modules.combat;
 
 import dev.vanguard.Vanguard;
-import dev.vanguard.mixin.LocalPlayerAccessor;
 import dev.vanguard.mixin.MinecraftInvoker;
 import dev.vanguard.module.Category;
 import dev.vanguard.module.Module;
@@ -10,8 +9,8 @@ import dev.vanguard.setting.EnumSetting;
 import dev.vanguard.setting.NumberSetting;
 import dev.vanguard.util.Crosshair;
 import dev.vanguard.util.FallTiming;
+import dev.vanguard.util.Latency;
 import dev.vanguard.util.ServerSprintTracker;
-import dev.vanguard.util.ShieldTracker;
 import dev.vanguard.util.Shields;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.minecraft.client.Minecraft;
@@ -46,6 +45,9 @@ import net.minecraft.world.phys.Vec3;
  * gives up waiting if the target would leave your reach first. Sprint state comes from what the
  * <em>server</em> believes (see {@link ServerSprintTracker}), so crits still land in the
  * sprint-crit state after a sprint hit.
+ *
+ * <p><b>SprintReset:</b> while it's restarting your sprint, a hit that can't crit waits for it (a few
+ * ticks at most), so it gets sprint knockback instead.
  *
  * <p><b>Spacing:</b> with Spacing at 100% it swings on the first frame the target is in reach
  * (outspacing). Lower values wait until they're closer.
@@ -95,7 +97,6 @@ public final class TriggerBot extends Module {
     /** How close an opponent must be to hit you back, for hit select to be worth it. */
     private static final double OPPONENT_REACH = 3.2;
 
-    private final ServerSprintTracker serverSprint = new ServerSprintTracker();
     private LocalPlayer trackedPlayer;
 
     private int critWaitStartTick = -1;
@@ -118,11 +119,6 @@ public final class TriggerBot extends Module {
     private void resetWaits() {
         critWaitStartTick = -1;
         holdStartNanos = 0;
-    }
-
-    /** Called for every attack the client sends, including your own clicks. */
-    public void onAttackSent(Player player) {
-        serverSprint.onAttack(player.getAttackStrengthScale(0.5f));
     }
 
     /** Called every frame from the camera-turn hook, after aim assist has moved the camera. */
@@ -178,21 +174,20 @@ public final class TriggerBot extends Module {
             case OFF -> {
             }
         }
+        if (!critNow && Vanguard.get().sprintReset().holdsHit(mc, player)) return;
         if (hitSelect.isOn() && !critNow && shouldHoldForHitSelect(player, target, partialTick, now)) return;
 
         resetWaits();
         ((MinecraftInvoker) mc).vanguard$startAttack();
     }
 
-    /** Keeps the sprint and hurt state current, even while the module is off. */
+    /** Keeps the hurt state current, even while the module is off. */
     private void track(LocalPlayer player, long now) {
         if (player != trackedPlayer) {
             trackedPlayer = player;
-            serverSprint.reset();
             lastHurtTime = 0;
             swingNanos.clear();
         }
-        serverSprint.observeSent(((LocalPlayerAccessor) player).vanguard$wasSprinting());
         if (player.hurtTime > lastHurtTime) lastHurtNanos = now;
         lastHurtTime = player.hurtTime;
     }
@@ -219,7 +214,7 @@ public final class TriggerBot extends Module {
             && !player.hasEffect(MobEffects.BLINDNESS)
             && !player.hasEffect(MobEffects.LEVITATION)
             && !player.getAbilities().flying
-            && !serverSprint.serverSprinting();
+            && !Vanguard.get().sprintTracker().serverSprinting();
     }
 
     /**
@@ -291,7 +286,7 @@ public final class TriggerBot extends Module {
      */
     private static boolean shieldBlocks(Minecraft mc, LocalPlayer player, LivingEntity target, ItemStack held) {
         if (!Shields.wouldBlock(target, player.position()) || Shields.disablesShields(held)) return false;
-        return !Vanguard.get().shieldTracker().isDownOrBreaking(target.getId(), ShieldTracker.answerTicks(mc));
+        return !Vanguard.get().shieldTracker().isDownOrBreaking(target.getId(), Latency.answerTicks(mc));
     }
 
     private static boolean isWeapon(ItemStack stack) {

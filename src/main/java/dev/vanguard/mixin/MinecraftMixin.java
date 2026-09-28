@@ -32,6 +32,10 @@ public abstract class MinecraftMixin {
         Minecraft mc = (Minecraft) (Object) this;
         vanguard.shieldTracker().onLevel(mc.level);
         vanguard.shieldTracker().tick();
+        // After the player's tick, so any sprint start or stop it sent is already counted.
+        vanguard.sprintTracker().onPlayer(mc.player);
+        if (mc.player != null) vanguard.sprintTracker().observeSent(((LocalPlayerAccessor) mc.player).vanguard$wasSprinting());
+        vanguard.sprintTracker().tick();
         ShieldBreaker shieldBreaker = vanguard.shieldBreaker();
         if (shieldBreaker != null) shieldBreaker.onClientTick(mc);
     }

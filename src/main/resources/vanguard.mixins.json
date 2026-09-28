@@ -6,6 +6,7 @@
     "ClientPacketListenerMixin",
     "EntityTurnMixin",
     "KeyboardHandlerMixin",
+    "KeyboardInputMixin",
     "LocalPlayerAccessor",
     "MinecraftInvoker",
     "MinecraftMixin",
