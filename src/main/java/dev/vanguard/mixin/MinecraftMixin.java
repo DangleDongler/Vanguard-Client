@@ -28,7 +28,11 @@ public abstract class MinecraftMixin {
     @Inject(method = "tick", at = @At("TAIL"))
     private void vanguard$afterTick(CallbackInfo ci) {
         Vanguard vanguard = Vanguard.get();
-        ShieldBreaker shieldBreaker = vanguard == null ? null : vanguard.shieldBreaker();
-        if (shieldBreaker != null) shieldBreaker.onClientTick((Minecraft) (Object) this);
+        if (vanguard == null) return;
+        Minecraft mc = (Minecraft) (Object) this;
+        vanguard.shieldTracker().onLevel(mc.level);
+        vanguard.shieldTracker().tick();
+        ShieldBreaker shieldBreaker = vanguard.shieldBreaker();
+        if (shieldBreaker != null) shieldBreaker.onClientTick(mc);
     }
 }

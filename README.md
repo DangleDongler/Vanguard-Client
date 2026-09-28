@@ -119,15 +119,36 @@ So it breaks the shield the moment it becomes active. Any hit resets your charge
 the fastest way to your next full-strength hit (12 ticks later with a sword, well inside the 100
 tick window). It only swaps when the server would really block you. Before the shield is fully up,
 or from behind, your normal hit lands, so it doesn't swap. It picks the hotbar axe with the most
-durability left, waits for the result before retrying the same player, and doesn't undo a slot
-change you made yourself.
+durability left, and doesn't undo a slot change you made yourself.
+
+One axe swing per raised shield. The server handles your hits in order, so once the axe hit is
+sent, anything after it lands on a lowered shield, even before your client sees it lower. A shared
+`ShieldTracker` listens to the server: a disabled shield plays the break sound (only ever played for
+a disable, and it arrives before the shield visibly lowers), and a blocked hit plays the block
+sound. From the moment the axe hit is sent, every other attack uses your weapon, whoever triggers it
+(your clicks, TriggerBot, the module itself). If one comes while you're still holding the axe, it
+switches back first. It tries again only if the server never answers within a round trip. If two
+breaks in a row go unanswered (say the target can't be hurt), it stops until they lower the shield.
+
+With TriggerBot: TriggerBot counts a shield as down from the moment the axe hit is sent, and when
+the server confirms a break by anyone, including a teammate. A shield break resets your charge, so
+TriggerBot then hits as soon as you're charged again.
 
 The axe is selected right before the attack is sent, the same order the game uses when you press a
 hotbar key and click in the same tick. The slot comes back on the next tick. Both your client and
 the server see the item change, so your charge stays in sync with the server's.
 
-Tested against a Carpet fake player holding a shield up continuously, in a production Fabric
-install (loader 0.18.4). The server saw each break as an iron axe hit that the shield blocked, which
+Stress-tested against a Carpet fake player that keeps raising its shield, in a production Fabric
+install (loader 0.18.4), counting every hit as the server saw it. There were 17 breaks across four
+22-second runs: Automatic with TriggerBot, TriggerBot swinging at the shield itself with Automatic
+off, and both again with about 11 clicks per second of spam on top. Every break took exactly one
+axe hit, and none hit an already-broken shield. TriggerBot never had a hit blocked, and its first
+hit after each break landed 14 to 17 server ticks later. (12 is the sword's charge time. Switching
+item costs two more ticks on both your client and the server; the order is the same as pressing a
+hotbar key and clicking.) The only blocked sword hits were one spam click per spam run, landing in
+the tick where the server's shield became active a moment before the client could see it.
+
+Earlier single-break tests in the same setup, against a player holding a shield up continuously: The server saw each break as an iron axe hit that the shield blocked, which
 then disabled it. The bot re-raised it every 105 ticks (the 100 tick cooldown plus the 5 tick
 delay), and it was broken again straight away. Between breaks, TriggerBot's sword hits landed:
 136 damage in 15 seconds against a shield that was always being raised. No swaps happen from behind

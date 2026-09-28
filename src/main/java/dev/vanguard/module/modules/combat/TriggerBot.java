@@ -1,5 +1,6 @@
 package dev.vanguard.module.modules.combat;
 
+import dev.vanguard.Vanguard;
 import dev.vanguard.mixin.LocalPlayerAccessor;
 import dev.vanguard.mixin.MinecraftInvoker;
 import dev.vanguard.module.Category;
@@ -10,6 +11,7 @@ import dev.vanguard.setting.NumberSetting;
 import dev.vanguard.util.Crosshair;
 import dev.vanguard.util.FallTiming;
 import dev.vanguard.util.ServerSprintTracker;
+import dev.vanguard.util.ShieldTracker;
 import dev.vanguard.util.Shields;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.minecraft.client.Minecraft;
@@ -161,7 +163,7 @@ public final class TriggerBot extends Module {
         AttackRange weaponRange = held.get(DataComponents.ATTACK_RANGE);
         if (weaponRange != null && !weaponRange.isInRange(player, hit.getLocation())) return;
 
-        if (skipShields.isOn() && Shields.wouldBlock(target, player.position()) && !Shields.disablesShields(held)) return;
+        if (skipShields.isOn() && shieldBlocks(mc, player, target, held)) return;
         // Fast items can re-hit before the target's damage immunity wears off; wait it out.
         if (player.getCurrentItemAttackStrengthDelay() < 10f && target.hurtTime > 0) return;
 
@@ -281,6 +283,15 @@ public final class TriggerBot extends Module {
     private static double reach(LocalPlayer player, ItemStack held) {
         AttackRange weaponRange = held.get(DataComponents.ATTACK_RANGE);
         return weaponRange != null ? weaponRange.effectiveMaxRange(player) + weaponRange.hitboxMargin() : player.entityInteractionRange();
+    }
+
+    /**
+     * Whether the target's shield would stop this hit. A shield that's being broken (the axe hit is on
+     * its way; the server handles it before this hit) or confirmed broken, by anyone, counts as down.
+     */
+    private static boolean shieldBlocks(Minecraft mc, LocalPlayer player, LivingEntity target, ItemStack held) {
+        if (!Shields.wouldBlock(target, player.position()) || Shields.disablesShields(held)) return false;
+        return !Vanguard.get().shieldTracker().isDownOrBreaking(target.getId(), ShieldTracker.answerTicks(mc));
     }
 
     private static boolean isWeapon(ItemStack stack) {

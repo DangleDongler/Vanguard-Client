@@ -6,6 +6,7 @@ import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.combat.AimAssist;
 import dev.vanguard.module.modules.combat.ShieldBreaker;
 import dev.vanguard.module.modules.combat.TriggerBot;
+import dev.vanguard.util.ShieldTracker;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.Identifier;
@@ -24,6 +25,7 @@ public final class Vanguard implements ClientModInitializer {
     private AimAssist aimAssist;
     private TriggerBot triggerBot;
     private ShieldBreaker shieldBreaker;
+    private final ShieldTracker shieldTracker = new ShieldTracker();
 
     public static Vanguard get() {
         return instance;
@@ -67,6 +69,11 @@ public final class Vanguard implements ClientModInitializer {
     /** Cached for the per-frame, per-attack and per-tick hooks. Null until {@link #onInitializeClient()} runs. */
     public ShieldBreaker shieldBreaker() {
         return shieldBreaker;
+    }
+
+    /** Other players' shields, as the server reports them. Shared by the combat modules. */
+    public ShieldTracker shieldTracker() {
+        return shieldTracker;
     }
 
     public ConfigManager config() {

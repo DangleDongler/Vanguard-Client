@@ -1,12 +1,13 @@
 package dev.vanguard.module.modules.combat;
 
+import dev.vanguard.Vanguard;
 import dev.vanguard.mixin.MinecraftInvoker;
 import dev.vanguard.module.Category;
 import dev.vanguard.module.Module;
 import dev.vanguard.setting.BoolSetting;
 import dev.vanguard.util.Crosshair;
+import dev.vanguard.util.ShieldTracker;
 import dev.vanguard.util.Shields;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.player.Inventory;
@@ -27,22 +28,20 @@ import net.minecraft.world.phys.EntityHitResult;
  * 5 tick delay, and you're within its 90 degree cover. Before that, or from behind, your normal hit
  * already lands, so it never wastes a hit on the axe.
  *
+ * <p><b>One axe swing per raised shield.</b> The server handles hits in order, so once the axe hit is
+ * sent, anything after it lands on a lowered shield, even before the client sees it lower. The
+ * {@link ShieldTracker} remembers the break from the moment it's sent, and every other attack uses
+ * your weapon, whoever triggers it (your clicks, TriggerBot, this module). If an attack comes while
+ * you're still holding the axe we switched to, it switches back first. It only tries again if the
+ * server says the break failed (a block sound) or never answers within a round trip, and it stops
+ * altogether if the server ignores two in a row.
+ *
  * <p>The axe is selected right before the attack is sent, the same order the game uses when you
- * press a hotbar key and click in the same tick, and your slot is restored about a tick later.
+ * press a hotbar key and click in the same tick, and your slot is restored on the next tick.
  */
 public final class ShieldBreaker extends Module {
     public final BoolSetting automatic = bool("Automatic", "Breaks a raised shield by itself as soon as your crosshair is on it. Off: only when you attack.", true);
     public final BoolSetting swapBack = bool("Swap Back", "Switch back to what you were holding right after the hit.", true);
-
-    /**
-     * After trying to break a shield, wait this long before trying the same player again. The
-     * server's answer (their shield lowering) takes a round trip to arrive, and until then the
-     * shield still looks raised.
-     */
-    private static final int RETRY_TICKS = 10;
-
-    /** Last tick an axe hit was sent at each player, by entity id. */
-    private final Int2IntOpenHashMap lastAttemptTick = new Int2IntOpenHashMap();
 
     private int swapBackSlot = -1;
     private int axeSlot = -1;
@@ -55,32 +54,38 @@ public final class ShieldBreaker extends Module {
 
     @Override
     protected void onDisable() {
-        finishSwapBack(Minecraft.getInstance().player, true);
-        lastAttemptTick.clear();
+        LocalPlayer player = Minecraft.getInstance().player;
+        if (player != null) restoreSlot(player);
+        clearSwap();
     }
 
     /**
-     * Called right before every attack, including your own clicks and other modules. If the target's
-     * shield would block it and you aren't holding an axe, switches to one first so this very attack
-     * breaks the shield.
+     * Called right before every attack, including your own clicks and other modules. If this attack
+     * should break the target's shield and you aren't holding an axe, switches to one first. Any
+     * other attack is made with your weapon, never with the axe we switched to.
      */
     public void beforeAttack(Minecraft mc) {
-        if (!isEnabled()) return;
         LocalPlayer player = mc.player;
-        if (player == null || !(mc.hitResult instanceof EntityHitResult hit) || !(hit.getEntity() instanceof Player target)) return;
-        if (!isBreakable(player, target)) return;
+        if (player == null || !isEnabled()) return;
+        ShieldTracker shields = Vanguard.get().shieldTracker();
+        Player target = mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player p ? p : null;
 
-        lastAttemptTick.put(target.getId(), player.tickCount);
+        if (target == null || !needsBreaking(player, target, shields, ShieldTracker.answerTicks(mc))) {
+            if (swapBack.isOn()) restoreSlot(player);
+            return;
+        }
+
         Inventory inventory = player.getInventory();
-        if (Shields.disablesShields(player.getMainHandItem())) return;
-
-        int slot = findAxeSlot(inventory);
-        if (slot < 0) return;
-        if (swapBackSlot < 0) swapBackSlot = inventory.getSelectedSlot();
-        axeSlot = slot;
-        // The attack that follows sends the slot change first, then the hit, so the server sees the axe.
-        inventory.setSelectedSlot(slot);
-        swapBackAtTick = player.tickCount + 1;
+        if (!Shields.disablesShields(player.getMainHandItem())) {
+            int slot = findAxeSlot(inventory);
+            if (slot < 0) return;
+            if (swapBackSlot < 0) swapBackSlot = inventory.getSelectedSlot();
+            axeSlot = slot;
+            // The attack that follows sends the slot change first, then the hit, so the server sees the axe.
+            inventory.setSelectedSlot(slot);
+            swapBackAtTick = player.tickCount + 1;
+        }
+        shields.onBreakSent(target.getId());
     }
 
     /** Called every frame from the combat hook: breaks a raised shield under the crosshair. */
@@ -91,9 +96,11 @@ public final class ShieldBreaker extends Module {
         if (player.isSpectator() || player.isUsingItem() || player.isHandsBusy()) return;
         if (!Shields.disablesShields(player.getMainHandItem()) && findAxeSlot(player.getInventory()) < 0) return;
 
+        ShieldTracker shields = Vanguard.get().shieldTracker();
+        int answerTicks = ShieldTracker.answerTicks(mc);
         // An axe hit uses your normal reach, whatever you're holding now.
         EntityHitResult hit = Crosshair.pick(mc, player, player.entityInteractionRange(),
-            living -> living instanceof Player target && isBreakable(player, target) && !recentlyTried(player, target), true);
+            living -> living instanceof Player target && needsBreaking(player, target, shields, answerTicks), true);
         if (hit == null) return;
         Crosshair.aimAt(mc, hit);
         ((MinecraftInvoker) mc).vanguard$startAttack();
@@ -104,31 +111,41 @@ public final class ShieldBreaker extends Module {
         LocalPlayer player = mc.player;
         if (player != trackedPlayer) {
             trackedPlayer = player;
-            swapBackSlot = -1;
-            lastAttemptTick.clear();
+            clearSwap();
             return;
         }
-        if (swapBackSlot >= 0 && player.tickCount >= swapBackAtTick) finishSwapBack(player, swapBack.isOn());
+        if (swapBackSlot >= 0 && player.tickCount >= swapBackAtTick) {
+            if (swapBack.isOn()) restoreSlot(player);
+            clearSwap();
+        }
     }
 
-    private void finishSwapBack(LocalPlayer player, boolean restore) {
-        // Only switch back if you haven't changed slots yourself in the meantime.
-        if (restore && player != null && player.getInventory().getSelectedSlot() == axeSlot) {
+    /**
+     * Whether this attack on {@code target} should be the one that breaks their shield: it's raised
+     * and would block you, and no break is already on its way or confirmed.
+     */
+    private static boolean needsBreaking(LocalPlayer player, Player target, ShieldTracker shields, int answerTicks) {
+        if (target == player || !target.isAlive() || target.isSpectator() || player.isAlliedTo(target)) return false;
+        if (!target.isBlocking()) {
+            shields.onNotBlocking(target.getId());
+            return false;
+        }
+        if (!Shields.wouldBlock(target, player.position()) || !Shields.canBeDisabled(target)) return false;
+        int id = target.getId();
+        return !shields.isDownOrBreaking(id, answerTicks) && !shields.isGivenUp(id);
+    }
+
+    /** Back to the slot you had before we switched to the axe, unless you've changed it yourself. */
+    private void restoreSlot(LocalPlayer player) {
+        if (swapBackSlot >= 0 && player.getInventory().getSelectedSlot() == axeSlot) {
             player.getInventory().setSelectedSlot(swapBackSlot);
         }
+        clearSwap();
+    }
+
+    private void clearSwap() {
         swapBackSlot = -1;
         axeSlot = -1;
-    }
-
-    /** A raised shield the server would block you with, and that an axe can disable. */
-    private static boolean isBreakable(LocalPlayer player, Player target) {
-        if (target == player || !target.isAlive() || target.isSpectator() || player.isAlliedTo(target)) return false;
-        return Shields.wouldBlock(target, player.position()) && Shields.canBeDisabled(target);
-    }
-
-    private boolean recentlyTried(LocalPlayer player, Player target) {
-        int last = lastAttemptTick.getOrDefault(target.getId(), Integer.MIN_VALUE);
-        return last != Integer.MIN_VALUE && player.tickCount - last < RETRY_TICKS;
     }
 
     /**
