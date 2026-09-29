@@ -35,7 +35,7 @@ import net.minecraft.world.phys.EntityHitResult;
  * <p><b>Pacing:</b> with Automatic, it waits the Reaction Time after a shield can block, and the
  * Attack Delay after your last hit, before it starts. Then it switches to the axe, holds it for the
  * Swap Delay, hits, and switches back after the Swap Back Delay. When you click a raised shield
- * yourself, your click starts it straight away (with the swap delays).
+ * yourself, your click becomes the switch, and the hit follows after the swap delay.
  *
  * <p><b>One axe swing per raised shield.</b> The server handles hits in order, so once the axe hit is
  * sent, anything after it lands on a lowered shield, even before the client sees it lower. The
@@ -45,9 +45,9 @@ import net.minecraft.world.phys.EntityHitResult;
  * server says the break failed (a block sound) or never answers within a round trip, and it stops
  * altogether if the server ignores two in a row.
  *
- * <p>Each switch goes out the way the game sends a hotbar key press: at the start of the next tick,
- * or together with the attack when the axe is picked and used at once (Swap Delay 0). The swap delay
- * counts from when the switch was sent, so the server sees the axe for that long before the hit.
+ * <p>Each switch goes out the way the game sends a hotbar key press, at the start of the next tick.
+ * The swap delay counts from when the switch was sent, so the server always has the axe in your
+ * hand for at least a tick before the hit, which is sent with its arm swing like any click.
  */
 public final class ShieldBreaker extends Module {
     public final BoolSetting automatic = bool("Automatic", "Breaks a raised shield by itself when your crosshair is on it. Off: only when you attack.", true);
@@ -55,7 +55,7 @@ public final class ShieldBreaker extends Module {
         .visibleWhen(automatic::isOn);
     public final NumberSetting attackDelay = number("Attack Delay", "Waits at least this long after your last hit (yours or TriggerBot's) before breaking, so it doesn't swing again right away.", 250, 0, 1000, 10, "ms")
         .visibleWhen(automatic::isOn);
-    public final NumberSetting swapDelay = number("Swap Delay", "Ticks between switching to the axe and hitting with it. 1 tick = 50 ms. 0 switches and hits at once.", 1, 0, 10, 1, "t");
+    public final NumberSetting swapDelay = number("Swap Delay", "Ticks between switching to the axe and hitting with it. 1 tick = 50 ms. The switch always goes out at least a tick before the hit.", 1, 1, 10, 1, "t");
     public final BoolSetting swapBack = bool("Swap Back", "Switch back to what you were holding after the hit.", true);
     public final NumberSetting swapBackDelay = number("Swap Back Delay", "Ticks between the hit and switching back. 1 tick = 50 ms. At least 2, so the server always counts the switch (the normal game can't switch back any sooner).", 3, 2, 10, 1, "t")
         .visibleWhen(swapBack::isOn);
@@ -90,7 +90,7 @@ public final class ShieldBreaker extends Module {
     /**
      * Called right before every attack, including your own clicks and other modules. Returns true to
      * cancel it: the attack was on a raised shield and the axe was only just picked, so the hit
-     * comes after the swap delay instead.
+     * comes after the swap delay instead, never in the same tick as the switch.
      *
      * <p>If this attack should break the target's shield and you aren't holding an axe, switches to
      * one first. Any other attack is made with your weapon, never with the axe we switched to.
@@ -134,11 +134,7 @@ public final class ShieldBreaker extends Module {
         axeSlot = slot;
         inventory.setSelectedSlot(slot);
         schedule.swapped(target.getId(), tick);
-        if (swapDelay.intValue() > 0) return true;
-        // No delay: the attack that follows sends the slot change first, then the hit.
-        shields.onBreakSent(target.getId());
-        afterHit(tick);
-        return false;
+        return true;
     }
 
     private void afterHit(int tick) {

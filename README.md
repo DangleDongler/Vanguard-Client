@@ -109,16 +109,20 @@ Settings (Combat tab):
   breaking it. Shields take a quarter second to come up; this counts from then.
 - Attack Delay (default 250 ms) - with Automatic, waits at least this long after your last hit
   (yours or TriggerBot's), so it doesn't swing again right away.
-- Swap Delay (default 1 tick) - ticks between switching to the axe and hitting with it. 0 switches
-  and hits at once. It counts from when the switch reaches the server.
+- Swap Delay (default 1 tick, at least 1) - ticks between switching to the axe and hitting with
+  it. It counts from when the switch reaches the server, so the switch always goes out at least a
+  tick before the hit.
 - Swap Back - switch back to what you were holding after the hit.
 - Swap Back Delay (default 3 ticks, at least 2) - ticks between the hit and switching back. Any
   sooner, the switch back could reach the server in the same tick as the hit. The server would then
   skip resetting your sword's charge, which the normal game never lets happen.
 
 When you click a raised shield yourself (or TriggerBot does, with Skip Shields off), the click
-starts the break straight away: Reaction Time and Attack Delay are only for Automatic. With a Swap
-Delay, that click becomes the switch, and the axe hit follows after the delay.
+starts the break straight away: Reaction Time and Attack Delay are only for Automatic. That click
+becomes the switch, and the axe hit follows after the swap delay. Every hit, the axe's included,
+goes through the game's own attack code, so it's sent with its arm swing like a normal click. Nothing
+switches or hits while you're using an item (blocking, eating), and it won't switch back if you've
+changed slots yourself.
 
 Pacing measured in a production install against the shield-raising Carpet bot, timing when each
 packet left the client:
@@ -127,7 +131,6 @@ packet left the client:
 | --- | --- | --- | --- |
 | Reaction 300 ms, Swap 1, Swap Back 3 | 347-359 ms | 40-56 ms | 145-151 ms |
 | Attack Delay 1000 ms, Swap 3, Swap Back 5 | - | 149-161 ms | 240-255 ms |
-| All at minimum | 1-2 ms | 0 ms | 93-99 ms |
 
 The switch can only go out at the start of the next tick, which adds up to 50 ms to the reaction.
 With Attack Delay 1000 ms, the axe hit came about 1.2 s after the previous hit: the delay, then the
