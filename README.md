@@ -10,20 +10,28 @@ Working modules: **AimAssist**, **TriggerBot**, **ShieldBreaker** and **SprintRe
 ClickGUI's own settings (Client). Modules that didn't do anything yet have been removed; they'll come
 back as they're built.
 
-The **ClickGUI**:
+The **ClickGUI** is liquid glass floating over the live world:
 
-- A sidebar with the Vanguard logo, each category with its modules underneath (click a category to
-  fold it), and Configs at the bottom
-- A page per module: a header bar with its name and what it does, then its settings in sections.
-  Main holds the on/off switch and key; the rest are grouped (for example Aim and Targets)
-- Switches, sliders, dropdowns, key boxes with a clear button, and a color picker, all in a dark,
-  monochrome style over the blurred world
+- Real glass, not a blurred box: every piece captures the frame behind it and bends it through a
+  curved rim (refraction worked out with Snell's law over a squircle-shaped edge), frosts the middle,
+  splits colors slightly at the edge, and catches light along its rim. The tint adapts to what's
+  behind so text stays readable over bright sky and dark caves alike.
+- Across the top: the Vanguard capsule, the categories with a liquid drop that stretches as it
+  slides to the one you pick, and search and configs. Search slides open into a field; typing
+  anywhere in the menu starts a search.
+- The modules pane: each module with its icon, what it does and a switch. The selected one sits
+  under the same liquid drop.
+- The settings pane: the module's icon, name, description and a big on/off switch, then its
+  settings in rounded groups. Both panes grow and shrink to fit what they show.
+- The cursor lights the glass from inside, and a click sends a pulse of light through it. The menu
+  materializes piece by piece when it opens.
+- Switches, sliders, dropdowns, key capsules with a clear button, and a color picker
 - Configs: save your setup under a name, then load, update or delete it later
   (`.minecraft/vanguard/configs/`)
-- Settings that only show when relevant slide in and out, pages fade in, categories fold smoothly
-- Hover any setting for a description; the menu opens where you left it
-- Its own scale setting, so the menu looks the same at any Minecraft GUI scale; accent color or
-  rainbow, background blur and dim, animation speed, Inter or Minecraft's font
+- Hover anything for a description; the menu opens where you left it
+- Its own scale setting, so the menu looks the same at any Minecraft GUI scale. Accent color or
+  rainbow; how strongly the glass bends light, how frosted and how dark it is; background blur and
+  dim; animation speed; Inter or Minecraft's font.
 - Everything is saved to `.minecraft/vanguard/config.json`
 
 ## Aim Assist
@@ -266,14 +274,15 @@ the step back resumed on safe ground.
 | Action | Input |
 | --- | --- |
 | Open or close the ClickGUI | Right Shift (the ClickGUI's own bind), or Escape to close |
-| Fold or unfold a category | Click it in the sidebar |
-| Open a module's page | Click it in the sidebar |
-| Turn a module on or off | Its Toggle switch, or right-click it in the sidebar |
+| Switch category | Click it in the top bar |
+| Open a module's settings | Click it in the modules pane |
+| Turn a module on or off | Its switch, or right-click it in the modules pane |
+| Search | Click the magnifier, or just start typing; Escape clears |
 | Reset a slider or color | Right-click it |
-| Pick a mode | Click the box to open the list; right-click to cycle |
-| Bind a key | Click the key box, press a key (Backspace or Delete to unbind, Escape to cancel); the × clears it |
-| Scroll | Mouse wheel over the page or the sidebar |
-| Save a config | Configs page: type a name, press Enter or Save |
+| Pick a mode | Click the capsule to open the list; right-click to cycle |
+| Bind a key | Click the key capsule, press a key (Backspace or Delete to unbind, Escape to cancel); the × clears it |
+| Scroll | Mouse wheel over either pane |
+| Configs | The folder button in the top bar: type a name and press Enter or Save |
 
 ## Building
 
@@ -297,17 +306,24 @@ src/main/java/dev/vanguard/
   util/                      aim math (RotationUtil, AimSpring), crit timing, server sprint tracking,
                              crosshair picking with server positions, shield rules
   config/                    JSON persistence and named configs
-  gui/render/                Render2D, the shape pipeline and shader glue, icons, colors
-  gui/anim/                  time-based animations and easing curves
-  gui/clickgui/              screen, sidebar, pages (module, configs), sections, theme
+  gui/render/                Render2D, the shape and glass pipelines, the captured backdrop, icons,
+                             colors
+  gui/anim/                  time-based animations, easing curves and springs
+  gui/clickgui/              screen, top bar, modules pane, settings pane, pages, sections, theme
   gui/clickgui/widget/       one widget per setting type, plus buttons and a text field
   mixin/                     keyboard hook for binds; per-frame combat hook; attack, tick and packet
-                             hooks; accessors
+                             hooks; the GUI renderer hook where the glass captures the frame;
+                             accessors
 src/main/resources/assets/vanguard/
   shaders/core/shape.*       anti-aliased rounded shapes and soft shadows
+  shaders/core/glass.*       liquid glass: refraction, frost, dispersion, rim light, shadow
+  shaders/core/backdrop.*    the world behind the menu, blurred, dimmed and vignetted
+  shaders/core/blur_*.fsh    dual-filter blur passes
   font/                      Inter (SIL OFL 1.1, see inter-license.txt)
 ```
 
 ### How rendering works
 
 Minecraft 1.21.11 builds the GUI as a list of render states and draws them later, layered by their screen bounds. `Render2D` adds its own `GuiElementRenderState`s that use the `vanguard:pipeline/shape` pipeline. Rounded corners are quarter-circle quads, so the fragment shader only has to measure distance from the corner to get anti-aliased edges, rings and shadow falloff. The shape type and its parameter are packed into the texture coordinates, which lets every shape share one vertex format and batch together.
+
+The glass needs the frame behind the menu. Minecraft's GUI renderer already pauses once per frame, between what's under a screen (the world and HUD) and the screen itself, to blur the frame for menus. While the ClickGUI is open, `GuiRendererMixin` replaces that blur with `Backdrop`'s capture: it copies the frame into a texture and runs a dual-filter blur on it (a few halvings, then as many doublings). Each piece of glass is then a single quad drawn with `vanguard:pipeline/glass`, whose vertices carry the whole shape (size, corner radius, bezel) and its optics in extra vertex elements, so every piece batches into one draw. `glass.fsh` finds the pixel's distance to the rounded edge, treats the rim as a squircle-profiled lens, refracts a straight-down ray through it with Snell's law to know how far to shift the sample, and mixes the sharp and blurred frames: clearer at the rim where the bending shows, frosted in the middle.

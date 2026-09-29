@@ -11,8 +11,8 @@ import dev.vanguard.setting.Setting;
  * against the bounds from the last frame.
  */
 public abstract class Widget {
-    public static final float PAD_X = 7f;
-    public static final float ROW_HEIGHT = 18f;
+    public static final float PAD_X = 11f;
+    public static final float ROW_HEIGHT = 22f;
 
     /** Null for rows that aren't a setting. */
     protected final Setting<?> setting;
@@ -83,7 +83,7 @@ public abstract class Widget {
 
     /** A faint highlight behind a hovered row. */
     protected void drawHover(GuiContext ctx, float rowHeight, float hover) {
-        if (hover > 0.001f) ctx.render.roundedRect(x + 2f, y, width - 4f, rowHeight, 3f, Colors.fade(Theme.HOVER, hover));
+        if (hover > 0.001f) ctx.render.roundedRect(x + 3f, y + 1f, width - 6f, rowHeight - 2f, 7f, Colors.fade(Theme.HOVER, hover));
     }
 
     /**

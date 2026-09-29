@@ -1,9 +1,10 @@
 package dev.vanguard.gui.clickgui;
 
-import dev.vanguard.gui.clickgui.widget.BoolWidget;
 import dev.vanguard.gui.clickgui.widget.KeybindWidget;
 import dev.vanguard.gui.clickgui.widget.Widget;
 import dev.vanguard.gui.clickgui.widget.Widgets;
+import dev.vanguard.gui.render.Icons;
+import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.module.Module;
 import dev.vanguard.setting.Setting;
 
@@ -12,21 +13,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** A module's page: a Main section with its switch and key, then its settings in their sections. */
+/**
+ * A module's page: its key first, then its settings in their sections. The on/off switch lives in
+ * the pane's header.
+ */
 final class ModulePage implements Page {
     private final Module module;
     private final List<Section> sections = new ArrayList<>();
 
     ModulePage(Module module) {
         this.module = module;
-
-        List<Widget> main = new ArrayList<>();
-        // The ClickGUI module is on exactly while this menu is open, so it has no switch.
-        if (module.persistsEnabledState()) {
-            main.add(new BoolWidget("Toggle", "Turn " + module.name() + " on or off.", module::isEnabled, module::toggle));
-        }
-        main.add(new KeybindWidget(module.bind()));
-        sections.add(new Section("Main", main));
+        sections.add(new Section("General", List.of(new KeybindWidget(module.bind()))));
 
         Map<String, List<Widget>> grouped = new LinkedHashMap<>();
         for (Setting<?> setting : module.settings()) {
@@ -35,7 +32,8 @@ final class ModulePage implements Page {
         grouped.forEach((title, widgets) -> sections.add(new Section(title, widgets)));
     }
 
-    Module module() {
+    @Override
+    public Module module() {
         return module;
     }
 
@@ -52,5 +50,10 @@ final class ModulePage implements Page {
     @Override
     public List<Section> sections() {
         return sections;
+    }
+
+    @Override
+    public void icon(Render2D render, float cx, float cy, float size, int color) {
+        Icons.module(render, module, cx, cy, size, color);
     }
 }

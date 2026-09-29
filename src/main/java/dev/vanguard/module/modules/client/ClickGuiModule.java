@@ -2,6 +2,7 @@ package dev.vanguard.module.modules.client;
 
 import dev.vanguard.Vanguard;
 import dev.vanguard.gui.clickgui.ClickGuiScreen;
+import dev.vanguard.gui.clickgui.Theme;
 import dev.vanguard.module.Category;
 import dev.vanguard.module.Module;
 import dev.vanguard.setting.BoolSetting;
@@ -16,14 +17,16 @@ import org.lwjgl.glfw.GLFW;
 public final class ClickGuiModule extends Module {
     public enum Font { INTER, MINECRAFT }
 
-    /** The accent from before the monochrome redesign. Configs still holding it get the new default. */
-    private static final int OLD_DEFAULT_ACCENT = 0xFF7B61FF;
+    /** Accents that were the default in earlier designs. Configs still holding one get the new default. */
+    private static final int MONOCHROME_ACCENT = 0xFFCACACA;
+    private static final double MONOCHROME_DIM = 35;
+    private static final int[] OLD_DEFAULT_ACCENTS = {0xFF7B61FF, MONOCHROME_ACCENT};
 
     {
         section("Appearance");
     }
 
-    public final ColorSetting accent = add(new ColorSetting("Accent", "Color of switches, sliders and highlights.", 0xFFCACACA, false));
+    public final ColorSetting accent = add(new ColorSetting("Accent", "Color of switches, sliders and highlights.", Theme.DEFAULT_ACCENT, false));
     public final BoolSetting rainbow = bool("Rainbow", "Cycle the accent through every hue.", false);
     public final NumberSetting rainbowSpeed = number("Rainbow Speed", "Seconds per full hue cycle.", 6, 1, 20, 0.5, "s")
         .visibleWhen(rainbow::isOn);
@@ -31,11 +34,19 @@ public final class ClickGuiModule extends Module {
     public final NumberSetting scale = number("Scale", "Size of the GUI, independent of Minecraft's GUI scale.", 1, 0.5, 2, 0.25, "x");
 
     {
+        section("Glass");
+    }
+
+    public final NumberSetting refraction = number("Refraction", "How strongly the glass edges bend the world behind them.", 100, 0, 200, 10, "%");
+    public final NumberSetting frost = number("Frost", "How blurred the world looks through the glass.", 100, 0, 100, 5, "%");
+    public final NumberSetting tint = number("Tint", "How dark the glass is. Darker glass keeps text readable over bright scenes.", 55, 0, 100, 5, "%");
+
+    {
         section("Background");
     }
 
-    public final BoolSetting blur = bool("Blur", "Blur the world behind the GUI. Strength follows Minecraft's menu blur option.", true);
-    public final NumberSetting dim = number("Dim", "Darken the world behind the GUI.", 35, 0, 90, 5, "%");
+    public final BoolSetting blur = bool("Blur", "Blur the world behind the menu.", false);
+    public final NumberSetting dim = number("Dim", "Darken the world behind the menu.", 20, 0, 90, 5, "%");
 
     {
         section("Behavior");
@@ -52,9 +63,20 @@ public final class ClickGuiModule extends Module {
         });
     }
 
-    /** Moves configs saved before the redesign onto the new monochrome accent. */
+    /**
+     * Moves configs saved with an earlier design's default accent onto the current one. A config
+     * still on the monochrome design's defaults also gets the glass design's background (sharp and
+     * lightly dimmed, so the glass has something to bend); the accent changing makes this run once.
+     */
     public void migrateOldDefaults() {
-        if (accent.argb() == OLD_DEFAULT_ACCENT) accent.reset();
+        for (int old : OLD_DEFAULT_ACCENTS) {
+            if (accent.argb() != old) continue;
+            if (old == MONOCHROME_ACCENT && blur.isOn() && dim.get() == MONOCHROME_DIM) {
+                blur.reset();
+                dim.reset();
+            }
+            accent.reset();
+        }
     }
 
     @Override

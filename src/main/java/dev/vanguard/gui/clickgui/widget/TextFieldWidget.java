@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 
 /** A text box and a button that submits it. Enter submits too; Escape stops typing. */
 public final class TextFieldWidget extends Widget {
-    private static final float BOX_H = 14f;
+    private static final float BOX_H = 15f;
     private static final float GAP = 3f;
 
     private final String placeholder;
@@ -49,7 +49,7 @@ public final class TextFieldWidget extends Widget {
     protected void draw(GuiContext ctx) {
         Render2D r = ctx.render;
         float by = y + (ROW_HEIGHT - BOX_H) / 2f;
-        buttonW = r.smallWidth(buttonLabel) + 14f;
+        buttonW = r.smallWidth(buttonLabel) + 20f;
         buttonX = x + width - PAD_X - buttonW;
         float fieldX = x + PAD_X, fieldW = buttonX - GAP - fieldX;
 
@@ -62,22 +62,22 @@ public final class TextFieldWidget extends Widget {
         buttonHover.animateTo(overButton ? 1 : 0);
 
         float f = focus.get();
-        r.roundedRect(fieldX, by, fieldW, BOX_H, 3f, Theme.FIELD);
-        if (f > 0.01f) r.roundedOutline(fieldX, by, fieldW, BOX_H, 3f, 0.6f, Colors.fade(0x40FFFFFF, f));
+        r.roundedRect(fieldX, by, fieldW, BOX_H, BOX_H / 2f, Theme.FIELD);
+        r.roundedOutline(fieldX, by, fieldW, BOX_H, BOX_H / 2f, 0.7f, Colors.lerp(0x14FFFFFF, ctx.theme.accent(200), f));
         float textY = r.smallY(by, BOX_H);
         if (text.isEmpty() && !focused) {
-            r.small(placeholder, fieldX + 7f, textY, Theme.TEXT_MUTED);
+            r.small(placeholder, fieldX + 9f, textY, Theme.TEXT_MUTED);
         } else {
             String shown = text.toString();
             // Keep the end of long text in view.
             while (!shown.isEmpty() && r.smallWidth(shown) > fieldW - 16f) shown = shown.substring(1);
-            float drawn = r.small(shown, fieldX + 7f, textY, Theme.TEXT);
+            float drawn = r.small(shown, fieldX + 9f, textY, Theme.TEXT);
             boolean caretOn = System.currentTimeMillis() - lastEdit < 500 || (System.currentTimeMillis() / 530) % 2 == 0;
-            if (focused && caretOn) r.rect(fieldX + 7f + drawn + 0.8f, by + 3.5f, 0.7f, BOX_H - 7f, Theme.TEXT);
+            if (focused && caretOn) r.rect(fieldX + 9f + drawn + 0.8f, by + 3.5f, 0.8f, BOX_H - 7f, ctx.theme.accent());
         }
 
-        r.roundedRect(buttonX, by, buttonW, BOX_H, 3f, Colors.lerp(Theme.BUTTON, Theme.BUTTON_HOVER, buttonHover.get()));
-        r.small(buttonLabel, buttonX + 7f, textY, Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, buttonHover.get()));
+        r.roundedRect(buttonX, by, buttonW, BOX_H, BOX_H / 2f, Colors.lerp(ctx.theme.accent(), Colors.lerp(ctx.theme.accent(), 0xFFFFFFFF, 0.2f), buttonHover.get()));
+        r.smallBold(buttonLabel, buttonX + 10f, textY, 0xFFFFFFFF);
     }
 
     private void submit() {

@@ -13,11 +13,11 @@ import dev.vanguard.util.Keys;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * The key in a box, and a button that clears it. Click the key to listen, then press a key.
+ * The key in a capsule, and a button that clears it. Click the key to listen, then press a key.
  * Escape cancels; Backspace, Delete or right-click unbinds.
  */
 public final class KeybindWidget extends Widget {
-    private static final float BOX_H = 14f;
+    private static final float BOX_H = 15f;
     private static final float GAP = 3f;
 
     private final KeybindSetting bind;
@@ -44,7 +44,7 @@ public final class KeybindWidget extends Widget {
         float boxY = y + (ROW_HEIGHT - BOX_H) / 2f;
         clearX = x + width - PAD_X - BOX_H;
         String label = listening ? "Press a key" : Keys.name(bind.key());
-        keyW = Math.max(30f, r.smallWidth(label) + 16f);
+        keyW = Math.max(34f, r.smallWidth(label) + 18f);
         keyX = clearX - GAP - keyW;
 
         boolean overKey = ctx.hovered(keyX, boxY, keyW, BOX_H);
@@ -60,8 +60,9 @@ public final class KeybindWidget extends Widget {
         drawLabel(ctx, y, ROW_HEIGHT, keyW + GAP + BOX_H, Theme.TEXT);
 
         float l = listen.get();
-        r.roundedRect(keyX, boxY, keyW, BOX_H, 3f, Colors.lerp(Colors.lerp(Theme.FIELD, Theme.BUTTON, hover.get() * 0.6f), Theme.BUTTON, l));
-        if (l > 0.01f) r.roundedOutline(keyX, boxY, keyW, BOX_H, 3f, 0.6f, ctx.theme.accent(Math.round(140 * l)));
+        int fill = Colors.lerp(Colors.lerp(Theme.CONTROL, Theme.CONTROL_HOVER, hover.get()), ctx.theme.accent(70), l);
+        r.roundedRect(keyX, boxY, keyW, BOX_H, BOX_H / 2f, fill);
+        if (l > 0.01f) r.roundedOutline(keyX, boxY, keyW, BOX_H, BOX_H / 2f, 0.7f, ctx.theme.accent(Math.round(200 * l)));
         int textColor = bind.isBound() ? Theme.TEXT : Theme.TEXT_MUTED;
         if (listening) {
             // Pulse while waiting for a key.
@@ -71,7 +72,7 @@ public final class KeybindWidget extends Widget {
         float textWidth = r.smallWidth(label);
         r.small(label, keyX + (keyW - textWidth) / 2f, r.smallY(boxY, BOX_H), textColor);
 
-        r.roundedRect(clearX, boxY, BOX_H, BOX_H, 3f, Colors.lerp(Theme.BUTTON, Theme.BUTTON_HOVER, clearHover.get()));
+        r.circle(clearX + BOX_H / 2f, boxY + BOX_H / 2f, BOX_H / 2f, Colors.lerp(Theme.CONTROL, Theme.CONTROL_HOVER, clearHover.get()));
         Icons.close(r, clearX + BOX_H / 2f, boxY + BOX_H / 2f, 9f, Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, clearHover.get()));
     }
 

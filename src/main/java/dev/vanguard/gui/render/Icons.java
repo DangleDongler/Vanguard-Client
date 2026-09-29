@@ -1,6 +1,9 @@
 package dev.vanguard.gui.render;
 
 import dev.vanguard.module.Category;
+import dev.vanguard.module.Module;
+
+import java.util.Arrays;
 
 /**
  * Line icons drawn from shapes, so they stay sharp at any scale. Each fits a
@@ -14,7 +17,7 @@ public final class Icons {
 
     public static void category(Render2D r, Category category, float cx, float cy, float size, int color) {
         switch (category) {
-            case COMBAT -> crosshair(r, cx, cy, size, color);
+            case COMBAT -> swords(r, cx, cy, size, color);
             case MOVEMENT -> speed(r, cx, cy, size, color);
             case RENDER -> eye(r, cx, cy, size, color);
             case PLAYER -> person(r, cx, cy, size, color);
@@ -22,6 +25,104 @@ public final class Icons {
             case MISC -> grid(r, cx, cy, size, color);
             case CLIENT -> sliders(r, cx, cy, size, color);
         }
+    }
+
+    /** A module's own icon, or its category's when it has none. */
+    public static void module(Render2D r, Module module, float cx, float cy, float size, int color) {
+        switch (module.name()) {
+            case "AimAssist" -> crosshair(r, cx, cy, size, color);
+            case "TriggerBot" -> bolt(r, cx, cy, size, color);
+            case "ShieldBreaker" -> shield(r, cx, cy, size, color);
+            case "SprintReset" -> sprint(r, cx, cy, size, color);
+            case "ClickGUI" -> sliders(r, cx, cy, size, color);
+            default -> category(r, module.category(), cx, cy, size, color);
+        }
+    }
+
+    /** Two crossed swords. */
+    public static void swords(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * STROKE;
+        float a = s * 0.42f;
+        r.line(cx - a, cy - a, cx + a * 0.62f, cy + a * 0.62f, t, c);
+        r.line(cx + a, cy - a, cx - a * 0.62f, cy + a * 0.62f, t, c);
+        // Guards across each blade near the hilt, then the hilts.
+        float g = s * 0.16f, h = a * 0.52f;
+        r.line(cx + h - g, cy + h + g, cx + h + g, cy + h - g, t, c);
+        r.line(cx - h - g, cy + h - g, cx - h + g, cy + h + g, t, c);
+        r.line(cx + h, cy + h, cx + a * 0.95f, cy + a * 0.95f, t, c);
+        r.line(cx - h, cy + h, cx - a * 0.95f, cy + a * 0.95f, t, c);
+    }
+
+    /** A lightning bolt. */
+    public static void bolt(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * STROKE;
+        r.polyline(t, c,
+            cx + s * 0.10f, cy - s * 0.48f,
+            cx - s * 0.22f, cy + s * 0.05f,
+            cx + s * 0.20f, cy + s * 0.02f,
+            cx - s * 0.10f, cy + s * 0.48f);
+    }
+
+    /** A shield with a crack down it. */
+    public static void shield(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * STROKE;
+        float w = s * 0.36f, top = cy - s * 0.42f, shoulder = cy - s * 0.02f, bottom = cy + s * 0.46f;
+        int steps = 8;
+        float[] outline = new float[(steps * 2 + 5) * 2];
+        int i = 0;
+        outline[i++] = cx - w;
+        outline[i++] = top + s * 0.05f;
+        outline[i++] = cx;
+        outline[i++] = top - s * 0.02f;
+        outline[i++] = cx + w;
+        outline[i++] = top + s * 0.05f;
+        // Right side curving into the point, then back up the left.
+        for (int k = 0; k <= steps; k++) {
+            double a = Math.PI / 2 * k / steps;
+            outline[i++] = cx + w * (float) Math.cos(a);
+            outline[i++] = shoulder + (bottom - shoulder) * (float) Math.sin(a);
+        }
+        for (int k = steps - 1; k >= 0; k--) {
+            double a = Math.PI / 2 * k / steps;
+            outline[i++] = cx - w * (float) Math.cos(a);
+            outline[i++] = shoulder + (bottom - shoulder) * (float) Math.sin(a);
+        }
+        outline[i++] = cx - w;
+        outline[i++] = top + s * 0.05f;
+        r.polyline(t, c, Arrays.copyOf(outline, i));
+        r.polyline(t * 0.9f, c, cx + s * 0.02f, top + s * 0.08f, cx - s * 0.08f, cy - s * 0.06f, cx + s * 0.07f, cy + s * 0.08f, cx - s * 0.02f, cy + s * 0.3f);
+    }
+
+    /** Two arrows chasing each other round a circle: a reset. */
+    public static void sprint(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * STROKE;
+        float radius = s * 0.34f;
+        for (int k = 0; k < 2; k++) {
+            float start = (float) (k * Math.PI - Math.PI * 0.42);
+            float end = start + (float) (Math.PI * 0.72);
+            r.arc(cx, cy, radius, start, end, t, c);
+            float ex = cx + (float) Math.cos(end) * radius, ey = cy + (float) Math.sin(end) * radius;
+            // Arrowhead pointing along the arc.
+            float dx = -(float) Math.sin(end), dy = (float) Math.cos(end);
+            float head = s * 0.17f;
+            r.polyline(t, c,
+                ex - dx * head + dy * head * 0.8f, ey - dy * head - dx * head * 0.8f,
+                ex, ey,
+                ex - dx * head - dy * head * 0.8f, ey - dy * head + dx * head * 0.8f);
+        }
+    }
+
+    /** A check mark. */
+    public static void check(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * 0.13f;
+        r.polyline(t, c, cx - s * 0.34f, cy + s * 0.02f, cx - s * 0.1f, cy + s * 0.26f, cx + s * 0.36f, cy - s * 0.24f);
+    }
+
+    /** Small chevrons up and down, marking a value that opens a list. */
+    public static void upDown(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * 0.12f;
+        r.chevron(cx, cy - s * 0.2f, s * 0.5f, (float) -Math.PI / 2, t, c);
+        r.chevron(cx, cy + s * 0.2f, s * 0.5f, (float) Math.PI / 2, t, c);
     }
 
     /** Ring with ticks crossing it, like a scope. */

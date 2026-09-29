@@ -1,55 +1,66 @@
 package dev.vanguard.gui.clickgui;
 
 import dev.vanguard.gui.render.Colors;
+import dev.vanguard.gui.render.Glass;
 import dev.vanguard.module.modules.client.ClickGuiModule;
 
 /**
- * ClickGUI palette: dark, slightly see-through neutrals over the blurred world, and an accent
- * (light grey by default) for switches and sliders.
+ * The glass look: pieces of dark liquid glass floating over the world, white text and controls
+ * made of translucent white on top of them, and one accent color for what's switched on.
+ *
+ * <p>Following how glass interfaces stay readable, only the floating layer (the top bar and the
+ * two panes) is real glass. What sits on the glass uses fills, never more glass, except the
+ * selection droplets, which are meant to read as a lens on top of the pane.
  */
 public final class Theme {
-    // Sidebar
-    public static final int SIDEBAR_FRAME = 0xEE171716;
-    public static final int SIDEBAR_CAP_TOP = 0xF4211F1C;
-    public static final int SIDEBAR = 0xEC0E0F10;
-    public static final int OUTLINE = 0x12FFFFFF;
-    public static final int SEPARATOR = 0x10FFFFFF;
-    public static final int SELECTED = 0xFF1E1E1E;
+    // Text on glass
+    public static final int TEXT = 0xFFF4F6FA;
+    public static final int TEXT_DIM = 0xC4E8ECF4;
+    public static final int TEXT_MUTED = 0x8CDCE2EC;
+    public static final int CAPTION = 0x80DCE2EC;
 
-    // Page
-    public static final int HEADER = 0xDD1A1917;
-    public static final int CHIP = 0xFF2A2A27;
-    public static final int CARD = 0xE60B0B0B;
-    public static final int CARD_HEADER = 0xFF1C1C1C;
-    public static final int SHADOW = 0x80000000;
+    // Fills on glass
+    public static final int GROUP = 0x10FFFFFF;
+    public static final int HAIRLINE = 0x12FFFFFF;
+    public static final int HOVER = 0x0DFFFFFF;
+    public static final int CONTROL = 0x1CFFFFFF;
+    public static final int CONTROL_HOVER = 0x30FFFFFF;
+    public static final int FIELD = 0x24000000;
+    public static final int SWITCH_OFF = 0x38FFFFFF;
+    public static final int TRACK = 0x2AFFFFFF;
+    public static final int KNOB = 0xFFFFFFFF;
+    public static final int TILE = 0x1FFFFFFF;
+    public static final int DANGER = 0xFFFF6961;
 
-    // Controls
-    public static final int FIELD = 0xFF171717;
-    public static final int BUTTON = 0xFF262626;
-    public static final int BUTTON_HOVER = 0xFF323232;
-    public static final int SWITCH_OFF = 0xFF2E302F;
-    public static final int KNOB_OFF = 0xFF9A9C9B;
-    public static final int TRACK = 0xFF2F2F2F;
-    public static final int HOVER = 0x09FFFFFF;
-    public static final int DANGER = 0xFFE5534B;
+    // Popovers (tooltips): not glass, so they read over anything.
+    public static final int POPOVER = 0xF0161A22;
+    public static final int POPOVER_EDGE = 0x1CFFFFFF;
 
-    // Text
-    public static final int TEXT = 0xFFE4E4E4;
-    public static final int TEXT_DIM = 0xFFA6A6A6;
-    public static final int TEXT_MUTED = 0xFF6C6C6C;
-    public static final int CAPTION = 0xFF6E6E6B;
-    public static final int HEADER_TEXT = 0xFF8E8E8A;
+    public static final int DEFAULT_ACCENT = 0xFF4FA8FF;
 
-    private int accent = 0xFFCACACA;
+    /** The top bar's capsules. */
+    public final Glass capsule = new Glass().bezel(15f).thickness(2.2f).frost(0.72f).tint(0x7A0E1118).shadow(14f);
+    /** The module list and the settings pane. */
+    public final Glass pane = new Glass().bezel(16f).thickness(1.9f).frost(0.9f).tint(0x940D1016).shadow(22f);
+    /** The lens that marks the selected tab or module. */
+    public final Glass droplet = new Glass().bezel(7f).thickness(2.4f).frost(1f).specular(1f).tint(0x6C4A5262).shadow(5f);
+
+    private int accent = DEFAULT_ACCENT;
+    private float refraction = 1f;
+    private float frost = 1f;
+    private float tint = 1f;
 
     void update(ClickGuiModule settings) {
         if (settings.rainbow.isOn()) {
             double periodMs = settings.rainbowSpeed.get() * 1000.0;
             float hue = (float) ((System.currentTimeMillis() % (long) periodMs) / periodMs);
-            accent = Colors.hsv(hue, 0.55f, 0.95f, 255);
+            accent = Colors.hsv(hue, 0.6f, 1f, 255);
         } else {
             accent = settings.accent.argb();
         }
+        refraction = settings.refraction.floatValue() / 100f;
+        frost = settings.frost.floatValue() / 100f;
+        tint = settings.tint.floatValue() / 55f;
     }
 
     public int accent() {
@@ -60,8 +71,25 @@ public final class Theme {
         return Colors.withAlpha(accent, alpha);
     }
 
-    /** A dark version of the accent, for the track of a switch that's on. */
-    public int accentTrack() {
-        return Colors.lerp(SWITCH_OFF, accent, 0.38f);
+    /** A deeper shade of the accent, for the bottom of accent-filled tiles. */
+    public int accentDeep() {
+        return Colors.lerp(accent, 0xFF0B1A3A, 0.35f);
+    }
+
+    /**
+     * {@code base} adjusted by the player's glass settings, with its opacity (the materialize
+     * animation) scaling how strongly it bends light.
+     */
+    public Glass styled(Glass base, Glass out, float materialize) {
+        out.bezel = base.bezel;
+        out.thickness = base.thickness * refraction * materialize;
+        out.frost = Math.clamp(base.frost * frost, 0f, 1f);
+        out.specular = base.specular;
+        int tintAlpha = Math.clamp(Math.round(Colors.alpha(base.tint) * tint), 0, 255);
+        out.tint = Colors.withAlpha(base.tint, tintAlpha);
+        out.shadow = base.shadow;
+        out.glow = 0;
+        out.cursorX = out.cursorY = Float.NaN;
+        return out;
     }
 }

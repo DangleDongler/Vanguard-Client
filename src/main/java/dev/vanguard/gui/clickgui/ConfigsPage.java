@@ -6,6 +6,8 @@ import dev.vanguard.gui.clickgui.widget.ActionsWidget.Action;
 import dev.vanguard.gui.clickgui.widget.NoteWidget;
 import dev.vanguard.gui.clickgui.widget.TextFieldWidget;
 import dev.vanguard.gui.clickgui.widget.Widget;
+import dev.vanguard.gui.render.Icons;
+import dev.vanguard.gui.render.Render2D;
 import net.minecraft.util.Util;
 
 import java.util.ArrayList;
@@ -46,6 +48,11 @@ final class ConfigsPage implements Page {
     @Override
     public List<Section> sections() {
         return sections;
+    }
+
+    @Override
+    public void icon(Render2D render, float cx, float cy, float size, int color) {
+        Icons.folder(render, cx, cy, size, color);
     }
 
     @Override

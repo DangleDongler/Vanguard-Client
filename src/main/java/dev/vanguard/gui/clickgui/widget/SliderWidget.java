@@ -12,22 +12,22 @@ import org.lwjgl.glfw.GLFW;
 
 /** Label and value on one line, a full-width track below. Drag to set, right-click to reset. */
 public final class SliderWidget extends Widget {
-    private static final float HEIGHT = 32f;
-    private static final float LABEL_HEIGHT = 16f;
-    private static final float TRACK_Y = 19f;
-    private static final float TRACK_H = 3.2f;
-    private static final float KNOB_W = 5f;
-    private static final float KNOB_H = 6f;
+    private static final float HEIGHT = 34f;
+    private static final float LABEL_HEIGHT = 20f;
+    private static final float TRACK_Y = 23f;
+    private static final float TRACK_H = 4f;
+    private static final float KNOB = 9f;
 
     private final NumberSetting number;
     private final Animation fill;
     private final Animation hover = new Animation(0, 120, Easing.LINEAR);
+    private final Animation grab = new Animation(0, 160, Easing.CUBIC_OUT);
     private boolean dragging;
 
     public SliderWidget(NumberSetting setting) {
         super(setting);
         this.number = setting;
-        this.fill = new Animation((float) setting.progress(), 160, Easing.CUBIC_OUT);
+        this.fill = new Animation((float) setting.progress(), 180, Easing.CUBIC_OUT);
     }
 
     @Override
@@ -36,11 +36,11 @@ public final class SliderWidget extends Widget {
     }
 
     private float trackX() {
-        return x + PAD_X;
+        return x + PAD_X + KNOB / 2f;
     }
 
     private float trackWidth() {
-        return width - PAD_X * 2;
+        return width - PAD_X * 2 - KNOB;
     }
 
     @Override
@@ -52,6 +52,7 @@ public final class SliderWidget extends Widget {
             ctx.cursor(CursorTypes.RESIZE_EW);
         }
         hover.animateTo(hovered || dragging ? 1 : 0);
+        grab.animateTo(dragging ? 1 : 0);
 
         if (dragging) {
             number.setProgress((ctx.rawMouseX - trackX()) / trackWidth());
@@ -63,17 +64,21 @@ public final class SliderWidget extends Widget {
         drawHover(ctx, HEIGHT, hover.get());
         String value = number.format();
         float valueWidth = r.smallWidth(value);
-        drawLabel(ctx, y, LABEL_HEIGHT, valueWidth, Theme.TEXT);
-        r.small(value, x + width - PAD_X - valueWidth, r.smallY(y, LABEL_HEIGHT), Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, hover.get()));
+        drawLabel(ctx, y + 1f, LABEL_HEIGHT, valueWidth, Theme.TEXT);
+        r.small(value, x + width - PAD_X - valueWidth, r.smallY(y + 1f, LABEL_HEIGHT), Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, hover.get()));
 
         float tx = trackX(), tw = trackWidth(), ty = y + TRACK_Y;
-        r.roundedRect(tx, ty, tw, TRACK_H, TRACK_H / 2f, Theme.TRACK);
+        r.roundedRect(tx - TRACK_H / 2f, ty, tw + TRACK_H, TRACK_H, TRACK_H / 2f, Theme.TRACK);
         float filled = tw * fill.get();
         int accent = ctx.theme.accent();
-        if (filled > 0.5f) r.roundedRect(tx, ty, Math.max(filled, TRACK_H), TRACK_H, TRACK_H / 2f, accent);
-        float kx = Math.clamp(tx + filled - KNOB_W / 2f, tx, tx + tw - KNOB_W);
-        float ky = ty + TRACK_H / 2f - KNOB_H / 2f;
-        r.roundedRect(kx, ky, KNOB_W, KNOB_H, 1.4f, Colors.lerp(accent, 0xFFFFFFFF, 0.15f * hover.get()));
+        r.roundedRect(tx - TRACK_H / 2f, ty, filled + TRACK_H, TRACK_H, TRACK_H / 2f, accent);
+
+        // The knob: a white bead that swells while held.
+        float size = KNOB * (1f + 0.18f * grab.get());
+        float kx = tx + filled, ky = ty + TRACK_H / 2f;
+        r.shadow(kx - size / 2f, ky - size / 2f + 0.6f, size, size, size / 2f, 3f, 0x55000000);
+        r.circle(kx, ky, size / 2f, Theme.KNOB);
+        if (grab.get() > 0.01f) r.circle(kx, ky, size / 2f * 0.42f, Colors.fade(accent, grab.get()));
     }
 
     @Override

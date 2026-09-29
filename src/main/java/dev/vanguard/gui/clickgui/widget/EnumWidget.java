@@ -6,18 +6,19 @@ import dev.vanguard.gui.anim.Easing;
 import dev.vanguard.gui.clickgui.GuiContext;
 import dev.vanguard.gui.clickgui.Theme;
 import dev.vanguard.gui.render.Colors;
+import dev.vanguard.gui.render.Icons;
 import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.setting.EnumSetting;
 import org.lwjgl.glfw.GLFW;
 
-/** Mode picker: the value in a box on the right. Left-click opens the options, right-click cycles. */
+/** Mode picker: the value in a capsule on the right. Left-click opens the options below, right-click cycles. */
 public final class EnumWidget extends Widget {
-    private static final float BOX_H = 14f;
-    private static final float OPTION_HEIGHT = 15f;
+    private static final float BOX_H = 15f;
+    private static final float OPTION_HEIGHT = 18f;
     private static final float LIST_PAD = 3f;
 
     private final EnumSetting<?> choice;
-    private final Animation open = new Animation(0, 220, Easing.QUINT_OUT);
+    private final Animation open = new Animation(0, 260, Easing.QUINT_OUT);
     private final Animation hover = new Animation(0, 120, Easing.LINEAR);
     private final Animation[] optionHover;
     private boolean expanded;
@@ -54,19 +55,20 @@ public final class EnumWidget extends Widget {
 
         drawHover(ctx, ROW_HEIGHT, h);
         String value = EnumSetting.displayName(choice.get());
-        float boxW = Math.max(44f, r.smallWidth(value) + 16f);
+        float boxW = r.smallWidth(value) + 26f;
         float boxX = x + width - PAD_X - boxW, boxY = y + (ROW_HEIGHT - BOX_H) / 2f;
         drawLabel(ctx, y, ROW_HEIGHT, boxW, Theme.TEXT);
-        r.roundedRect(boxX, boxY, boxW, BOX_H, 3f, Colors.lerp(Theme.FIELD, Theme.BUTTON, Math.max(h * 0.6f, progress)));
-        r.small(value, boxX + 8f, r.smallY(boxY, BOX_H), Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, Math.max(h, progress)));
+        r.roundedRect(boxX, boxY, boxW, BOX_H, BOX_H / 2f, Colors.lerp(Theme.CONTROL, Theme.CONTROL_HOVER, Math.max(h * 0.7f, progress)));
+        r.small(value, boxX + 9f, r.smallY(boxY, BOX_H), Theme.TEXT);
+        Icons.upDown(r, boxX + boxW - 9.5f, boxY + BOX_H / 2f, 6.5f, Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT_DIM, h));
 
         if (progress <= 0.001f) return;
         float listY = y + ROW_HEIGHT + 2f;
         float visible = (listHeight() - 2f) * progress;
-        float listX = x + PAD_X, listW = width - PAD_X * 2;
+        float listX = x + PAD_X - 4f, listW = width - PAD_X * 2 + 8f;
         r.pushScissor(x, listY, width, visible);
         r.pushAlpha(progress);
-        r.roundedRect(listX, listY, listW, listHeight() - 4f, 4f, Theme.FIELD);
+        r.roundedRect(listX, listY, listW, listHeight() - 4f, 9f, Theme.FIELD);
         Enum<?>[] constants = choice.constants();
         for (int i = 0; i < constants.length; i++) {
             float oy = listY + LIST_PAD + i * OPTION_HEIGHT;
@@ -76,10 +78,10 @@ public final class EnumWidget extends Widget {
             optionHover[i].animateTo(optionHovered ? 1 : 0);
 
             float oh = optionHover[i].get();
-            if (oh > 0.001f) r.roundedRect(listX + 2f, oy, listW - 4f, OPTION_HEIGHT, 3f, Colors.fade(Theme.BUTTON, oh));
-            int color = selected ? Theme.TEXT : Colors.lerp(Theme.TEXT_MUTED, Theme.TEXT_DIM, oh);
-            r.small(EnumSetting.displayName(constants[i]), listX + 8f, r.smallY(oy, OPTION_HEIGHT), color);
-            if (selected) r.circle(listX + listW - 8f, oy + OPTION_HEIGHT / 2f, 1.6f, ctx.theme.accent());
+            if (oh > 0.001f) r.roundedRect(listX + 3f, oy, listW - 6f, OPTION_HEIGHT, 6f, Colors.fade(Theme.CONTROL, oh));
+            int color = selected ? Theme.TEXT : Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, oh);
+            r.small(EnumSetting.displayName(constants[i]), listX + 10f, r.smallY(oy, OPTION_HEIGHT), color);
+            if (selected) Icons.check(r, listX + listW - 12f, oy + OPTION_HEIGHT / 2f, 8f, ctx.theme.accent());
         }
         r.popAlpha();
         r.popScissor();

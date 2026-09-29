@@ -26,6 +26,10 @@ public final class Animation {
         globalSpeed = Math.max(0.01f, speed);
     }
 
+    public static float globalSpeed() {
+        return globalSpeed;
+    }
+
     public void animateTo(float target) {
         animateTo(target, 0);
     }

@@ -1,5 +1,6 @@
 package dev.vanguard.config;
 
+import dev.vanguard.gui.clickgui.Theme;
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.client.ClickGuiModule;
 import dev.vanguard.module.modules.combat.ShieldBreaker;
@@ -71,6 +72,37 @@ class ConfigManagerTest {
         int original = gui.bind().key();
         gui.bind().set(dev.vanguard.util.Keys.NONE);
         assertEquals(original, gui.bind().key());
+    }
+
+    @Test
+    void monochromeDefaultsMoveToTheGlassDesignOnce() {
+        ClickGuiModule gui = modules().get(ClickGuiModule.class);
+        gui.accent.set(0xFFCACACA);
+        gui.blur.set(true);
+        gui.dim.set(35.0);
+        gui.migrateOldDefaults();
+        assertEquals(Theme.DEFAULT_ACCENT, gui.accent.argb());
+        assertFalse(gui.blur.isOn());
+        assertEquals(20.0, gui.dim.get());
+
+        // Chosen afterwards, the same values stay.
+        gui.blur.set(true);
+        gui.dim.set(35.0);
+        gui.migrateOldDefaults();
+        assertTrue(gui.blur.isOn());
+        assertEquals(35.0, gui.dim.get());
+    }
+
+    @Test
+    void customizedBackgroundSurvivesTheAccentMigration() {
+        ClickGuiModule gui = modules().get(ClickGuiModule.class);
+        gui.accent.set(0xFFCACACA);
+        gui.blur.set(true);
+        gui.dim.set(50.0);
+        gui.migrateOldDefaults();
+        assertEquals(Theme.DEFAULT_ACCENT, gui.accent.argb());
+        assertTrue(gui.blur.isOn());
+        assertEquals(50.0, gui.dim.get());
     }
 
     @Test

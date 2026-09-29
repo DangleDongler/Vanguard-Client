@@ -4,13 +4,18 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.render.TextureSetup;
 import net.minecraft.network.chat.FontDescription;
 import net.minecraft.network.chat.Style;
 import net.minecraft.util.FormattedCharSequence;
 import org.joml.Matrix3x2f;
 import org.joml.Matrix3x2fStack;
+import org.joml.Vector2f;
+import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Immediate-mode 2D drawing on top of Minecraft's deferred GUI renderer, with
@@ -38,6 +43,10 @@ public final class Render2D {
     private Style boldStyle = Style.EMPTY.withBold(true);
     private Style smallStyle = Style.EMPTY;
     private Style smallBoldStyle = Style.EMPTY.withBold(true);
+    private Style titleStyle = Style.EMPTY.withBold(true);
+
+    /** What glass looks through this frame; null draws glass as plain tinted shapes. */
+    private @Nullable TextureSetup backdrop;
 
     // Shape under construction.
     private float[] vertices = new float[64 * ShapeRenderState.FLOATS_PER_VERTEX];
@@ -64,11 +73,13 @@ public final class Render2D {
                 boldStyle = fontStyle("inter_bold_");
                 smallStyle = fontStyle("inter_small_");
                 smallBoldStyle = fontStyle("inter_small_bold_");
+                titleStyle = fontStyle("inter_title_");
             } else {
                 regularStyle = Style.EMPTY;
                 boldStyle = Style.EMPTY.withBold(true);
                 smallStyle = Style.EMPTY;
                 smallBoldStyle = Style.EMPTY.withBold(true);
+                titleStyle = Style.EMPTY.withBold(true);
             }
         }
     }
@@ -312,6 +323,84 @@ public final class Render2D {
         submitShape();
     }
 
+    // ---------------------------------------------------------------- glass
+
+    /** Sets what glass looks through for the rest of the frame (from {@link Backdrop#request()}). */
+    public void setBackdrop(@Nullable TextureSetup backdrop) {
+        this.backdrop = backdrop;
+    }
+
+    /**
+     * Draws the captured frame over the whole screen: {@code blur}, {@code dim} and
+     * {@code vignette} from 0 to 1. Faded by the current alpha.
+     */
+    public void backdrop(float blur, float dim, float vignette) {
+        if (backdrop == null || alpha <= 0.002f) return;
+        int params = Colors.argb(Math.round(alpha * 255), unit(blur), unit(dim), unit(vignette));
+        graphics.guiRenderState.submitGuiElement(new BackdropRenderState(graphics.guiWidth(), graphics.guiHeight(), params, backdrop));
+    }
+
+    private static int unit(float value) {
+        return Math.round(Math.clamp(value, 0f, 1f) * 255f);
+    }
+
+    /**
+     * A rounded piece of liquid glass. Its opacity follows the current alpha. Only translation and
+     * uniform scaling of the pose are supported.
+     */
+    public void glass(float x, float y, float w, float h, float radius, Glass glass) {
+        if (w <= 0 || h <= 0 || alpha <= 0.002f) return;
+        if (backdrop == null) {
+            // Nothing to look through: a plain shape in the glass's tint.
+            if (glass.shadow > 0) shadow(x, y, w, h, radius, glass.shadow, 0x60000000);
+            roundedRect(x, y, w, h, radius, Colors.withAlpha(glass.tint, 0xE6));
+            return;
+        }
+        Matrix3x2fStack pose = graphics.pose();
+        Vector2f a = pose.transformPosition(x, y, new Vector2f());
+        Vector2f b = pose.transformPosition(x + w, y + h, new Vector2f());
+        float guiScale = (float) mc.getWindow().getGuiScale();
+        // Physical pixels per unit of the current pose.
+        float px = (float) Math.sqrt(Math.abs(pose.determinant())) * guiScale;
+
+        float halfW = (b.x - a.x) / 2f * guiScale, halfH = (b.y - a.y) / 2f * guiScale;
+        float centerX = (a.x + b.x) / 2f, centerY = (a.y + b.y) / 2f;
+        float limit = Math.min(halfW, halfH);
+        float r = Math.min(radius * px, limit);
+        float bezel = Math.min(glass.bezel * px, limit);
+        float shadowSize = glass.shadow * px;
+        // Room for the shadow around the glass, in screen units.
+        float margin = (shadowSize * 1.3f + 2f) / guiScale;
+        float x0 = a.x - margin, y0 = a.y - margin, x1 = b.x + margin, y1 = b.y + margin;
+
+        float cursorX = 0, cursorY = 0, glow = 0;
+        if (glass.glow > 0 && !Float.isNaN(glass.cursorX)) {
+            Vector2f cursor = pose.transformPosition(glass.cursorX, glass.cursorY, new Vector2f());
+            cursorX = (cursor.x - centerX) * guiScale;
+            cursorY = (cursor.y - centerY) * guiScale;
+            glow = Math.clamp(glass.glow, 0f, 1f);
+        }
+
+        int left = (int) Math.floor(x0), top = (int) Math.floor(y0);
+        ScreenRectangle bounds = new ScreenRectangle(left, top, (int) Math.ceil(x1) - left, (int) Math.ceil(y1) - top);
+        ScreenRectangle scissor = graphics.scissorStack.peek();
+        if (scissor != null) {
+            bounds = scissor.intersection(bounds);
+            if (bounds == null) return;
+        }
+        float marginPx = margin * guiScale;
+        graphics.guiRenderState.submitGuiElement(new GlassRenderState(
+            x0, y0, x1, y1,
+            -halfW - marginPx, -halfH - marginPx, halfW + marginPx, halfH + marginPx,
+            new float[]{halfW, halfH, r, bezel},
+            new float[]{glass.thickness, Math.clamp(glass.frost, 0f, 1f), Math.clamp(glass.specular, 0f, 1f), alpha},
+            new float[]{cursorX, cursorY, glow, shadowSize},
+            glass.tint,
+            backdrop,
+            scissor,
+            bounds));
+    }
+
     // ---------------------------------------------------------------- text
 
     public float lineHeight() {
@@ -363,6 +452,11 @@ public final class Render2D {
         return mc.font.getSplitter().stringWidth(sequence(text, smallBoldStyle)) * smallScale();
     }
 
+    /** Large semibold text for page titles. */
+    public float title(String text, float x, float y, int color) {
+        return draw(sequence(text, titleStyle), x, y, color, customFont ? 1f : 1.35f);
+    }
+
     /** Captions below small text, like a section label in capitals. */
     public float tiny(String text, float x, float y, int color) {
         return draw(sequence(text, smallBoldStyle), x, y, color, smallScale() * TINY_SCALE);
@@ -384,6 +478,25 @@ public final class Render2D {
         int end = text.length();
         while (end > 0 && smallWidth(text.substring(0, end), bold) > budget) end--;
         return text.substring(0, end).stripTrailing() + ellipsis;
+    }
+
+    /** Splits small text into lines no wider than {@code maxWidth}, breaking between words. */
+    public List<String> wrapSmall(String text, float maxWidth) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String word : text.split(" ")) {
+            String candidate = line.isEmpty() ? word : line + " " + word;
+            if (!line.isEmpty() && smallWidth(candidate) > maxWidth) {
+                lines.add(line.toString());
+                line.setLength(0);
+                line.append(word);
+            } else {
+                line.setLength(0);
+                line.append(candidate);
+            }
+        }
+        if (!line.isEmpty()) lines.add(line.toString());
+        return lines;
     }
 
     private float smallWidth(String text, boolean bold) {

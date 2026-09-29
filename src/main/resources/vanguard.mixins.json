@@ -3,8 +3,10 @@
   "package": "dev.vanguard.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "BufferBuilderAccessor",
     "ClientPacketListenerMixin",
     "EntityTurnMixin",
+    "GuiRendererMixin",
     "KeyboardHandlerMixin",
     "KeyboardInputMixin",
     "LocalPlayerAccessor",

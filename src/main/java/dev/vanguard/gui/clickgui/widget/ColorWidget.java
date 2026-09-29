@@ -13,10 +13,10 @@ import org.lwjgl.glfw.GLFW;
 
 /** Swatch that expands into a saturation/value square, hue bar, optional alpha bar and copy/paste. */
 public final class ColorWidget extends Widget {
-    private static final float SV_HEIGHT = 46f;
+    private static final float SV_HEIGHT = 52f;
     private static final float BAR_HEIGHT = 6f;
     private static final float GAP = 4f;
-    private static final float BUTTON_HEIGHT = 10f;
+    private static final float BUTTON_HEIGHT = 11f;
     private static final int[] HUES = {0xFFFF0000, 0xFFFFFF00, 0xFF00FF00, 0xFF00FFFF, 0xFF0000FF, 0xFFFF00FF, 0xFFFF0000};
 
     private enum Drag { NONE, SV, HUE, ALPHA }
@@ -85,7 +85,7 @@ public final class ColorWidget extends Widget {
         hover.animateTo(hovered ? 1 : 0);
 
         drawHover(ctx, ROW_HEIGHT, hover.get());
-        float swatchW = 22f, swatchH = 12f;
+        float swatchW = 24f, swatchH = 13f;
         drawLabel(ctx, y, ROW_HEIGHT, swatchW, Theme.TEXT);
         float sx = x + width - PAD_X - swatchW, sy = y + (ROW_HEIGHT - swatchH) / 2f;
         if (Colors.alpha(color.argb()) < 255) {
@@ -93,8 +93,8 @@ public final class ColorWidget extends Widget {
             r.checkerboard(sx, sy, swatchW, swatchH, 2f, 0xFF9A9A9A, 0xFF5A5A5A);
             r.popScissor();
         }
-        r.roundedRect(sx, sy, swatchW, swatchH, 3f, color.argb());
-        r.roundedOutline(sx, sy, swatchW, swatchH, 3f, 0.6f, 0x33FFFFFF);
+        r.roundedRect(sx, sy, swatchW, swatchH, swatchH / 2f, color.argb());
+        r.roundedOutline(sx, sy, swatchW, swatchH, swatchH / 2f, 0.7f, 0x40FFFFFF);
 
         pickerX = x + PAD_X;
         pickerW = width - PAD_X * 2;
@@ -113,7 +113,7 @@ public final class ColorWidget extends Widget {
         int pureHue = Colors.hsv(hue, 1f, 1f, 255);
         r.gradientH(pickerX, svY, pickerW, SV_HEIGHT, 0xFFFFFFFF, pureHue);
         r.gradientV(pickerX, svY, pickerW, SV_HEIGHT, 0x00000000, 0xFF000000);
-        r.roundedOutline(pickerX - 0.5f, svY - 0.5f, pickerW + 1f, SV_HEIGHT + 1f, 1.5f, 0.6f, Theme.OUTLINE);
+        r.roundedOutline(pickerX - 0.5f, svY - 0.5f, pickerW + 1f, SV_HEIGHT + 1f, 1.5f, 0.6f, Theme.HAIRLINE);
         float cx = pickerX + saturation * pickerW, cy = svY + (1f - value) * SV_HEIGHT;
         r.ring(cx, cy, 3f, 1.2f, 0xFFFFFFFF);
         r.ring(cx, cy, 3.6f, 0.6f, 0x80000000);
@@ -157,7 +157,7 @@ public final class ColorWidget extends Widget {
         Render2D r = ctx.render;
         boolean hovered = ctx.hovered(bx, by, bw, BUTTON_HEIGHT);
         if (hovered) ctx.cursor(CursorTypes.POINTING_HAND);
-        r.roundedRect(bx, by, bw, BUTTON_HEIGHT, 3f, hovered ? Theme.BUTTON_HOVER : Theme.BUTTON);
+        r.roundedRect(bx, by, bw, BUTTON_HEIGHT, 3f, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
         return hovered;
     }
 
@@ -168,7 +168,7 @@ public final class ColorWidget extends Widget {
     /** Two overlapping sheets. */
     private static void drawCopyIcon(Render2D r, float cx, float cy, int color) {
         r.roundedOutline(cx - 2.6f, cy - 2.6f, 3.8f, 3.8f, 0.9f, 0.7f, color);
-        r.roundedRect(cx - 1.2f, cy - 1.2f, 3.8f, 3.8f, 0.9f, Theme.BUTTON);
+        r.roundedRect(cx - 1.2f, cy - 1.2f, 3.8f, 3.8f, 0.9f, 0xFF3A3F48);
         r.roundedOutline(cx - 1.2f, cy - 1.2f, 3.8f, 3.8f, 0.9f, 0.7f, color);
     }
 

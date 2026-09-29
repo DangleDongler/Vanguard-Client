@@ -14,7 +14,7 @@ import java.util.List;
 
 /** A label with a few text buttons on the right. A risky button asks for a second click. */
 public final class ActionsWidget extends Widget {
-    private static final float BUTTON_H = 14f;
+    private static final float BUTTON_H = 15f;
     private static final float GAP = 3f;
     private static final long CONFIRM_MS = 3000;
 
@@ -67,7 +67,7 @@ public final class ActionsWidget extends Widget {
         float right = x + width - PAD_X;
         for (int i = actions.size() - 1; i >= 0; i--) {
             Action action = actions.get(i);
-            action.bw = r.smallWidth(action.shownLabel()) + 14f;
+            action.bw = r.smallWidth(action.shownLabel()) + 18f;
             action.bx = right - action.bw;
             right = action.bx - GAP;
         }
@@ -87,10 +87,10 @@ public final class ActionsWidget extends Widget {
         for (Action action : actions) {
             float h = action.hover.get();
             boolean armed = action.armed();
-            int fill = armed ? Colors.withAlpha(Theme.DANGER, 60) : Colors.lerp(Theme.BUTTON, Theme.BUTTON_HOVER, h);
-            r.roundedRect(action.bx, by, action.bw, BUTTON_H, 3f, fill);
+            int fill = armed ? Colors.withAlpha(Theme.DANGER, 70) : Colors.lerp(Theme.CONTROL, Theme.CONTROL_HOVER, h);
+            r.roundedRect(action.bx, by, action.bw, BUTTON_H, BUTTON_H / 2f, fill);
             int text = armed ? Theme.DANGER : Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, h);
-            r.small(action.shownLabel(), action.bx + 7f, r.smallY(by, BUTTON_H), text);
+            r.small(action.shownLabel(), action.bx + 9f, r.smallY(by, BUTTON_H), text);
         }
     }
 
