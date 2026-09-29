@@ -7,13 +7,13 @@ import com.mojang.blaze3d.platform.Window;
 import dev.vanguard.config.ConfigManager;
 import dev.vanguard.gui.anim.Animation;
 import dev.vanguard.gui.anim.Easing;
+import dev.vanguard.gui.clickgui.widget.Widget;
 import dev.vanguard.gui.render.Colors;
-import dev.vanguard.gui.render.Icons;
 import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.module.Category;
+import dev.vanguard.module.Module;
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.client.ClickGuiModule;
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
@@ -25,22 +25,25 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * The ClickGUI: a sidebar of category tabs on the left, and the open tabs' panels laid
- * out in a grid beside it. Everything is measured in its own units (2 physical pixels
- * at scale 1), so it looks the same whatever Minecraft's GUI scale is.
+ * The ClickGUI: the sidebar on the left, and the open page on the right: a header bar with the
+ * page's name and description, then its sections in a column. Everything is measured in its own
+ * units (2 physical pixels at scale 1), so it looks the same whatever Minecraft's GUI scale is.
  */
 public final class ClickGuiScreen extends Screen implements Sidebar.Host {
-    private static final float MARGIN = 8f;
-    private static final float GAP = 8f;
-    private static final float MIN_PANEL_WIDTH = 142f;
-    private static final float MAX_PANEL_WIDTH = 168f;
-    private static final float TOOLTIP_MAX_WIDTH = 150f;
-    private static final long TOOLTIP_DELAY_MS = 400;
-    private static final long STAGGER_MS = 35;
+    private static final float MARGIN = 10f;
+    private static final float GAP = 16f;
+    private static final float HEADER_HEIGHT = 25f;
+    private static final float HEADER_GAP = 14f;
+    private static final float COLUMN_WIDTH = 252f;
+    private static final float SECTION_GAP = 12f;
+    private static final float TOOLTIP_MAX_WIDTH = 170f;
+    private static final long TOOLTIP_DELAY_MS = 450;
 
     private final ConfigManager config;
     private final ClickGuiModule settings;
@@ -48,21 +51,21 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     private final Theme theme = new Theme();
     private final GuiContext ctx = new GuiContext(render, theme);
     private final Sidebar sidebar;
-    /** In category order, which is also layout order. */
-    private final List<Panel> panels = new ArrayList<>();
-    private final Set<Category> openTabs = EnumSet.complementOf(EnumSet.of(Category.CLIENT));
+    private final List<Module> modules = new ArrayList<>();
+    private final Map<Module, ModulePage> modulePages = new IdentityHashMap<>();
+    private final ConfigsPage configsPage;
+    private Page page;
 
     private Animation openProgress = new Animation(0, 300, Easing.QUINT_OUT);
+    private Animation pageProgress = new Animation(1, 260, Easing.QUINT_OUT);
     private final Animation tooltipFade = new Animation(0, 150, Easing.CUBIC_OUT);
-    private final Animation emptyFade = new Animation(0, 200, Easing.CUBIC_OUT);
     private final Animation scroll = new Animation(0, 220, Easing.CUBIC_OUT);
     private float scrollTarget;
     private float maxScroll;
     private boolean closing;
     /** Set when a widget consumed a key press, so the character event GLFW sends for it is dropped. */
     private boolean swallowChar;
-    private Panel pressedPanel;
-    private String lastQuery = "";
+    private boolean dragging;
 
     private String tooltip;
     private long tooltipSince;
@@ -71,23 +74,75 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     private float guiWidth;
     private float guiHeight;
 
-    public ClickGuiScreen(ModuleManager modules, ConfigManager config) {
+    public ClickGuiScreen(ModuleManager moduleManager, ConfigManager config) {
         super(Component.literal("Vanguard"));
         this.config = config;
-        this.settings = modules.get(ClickGuiModule.class);
-        String version = FabricLoader.getInstance().getModContainer("vanguard")
-            .map(c -> "v" + c.getMetadata().getVersion().getFriendlyString().split("\\+")[0])
-            .orElse("dev");
+        this.settings = moduleManager.get(ClickGuiModule.class);
+        this.configsPage = new ConfigsPage(config);
 
         List<Category> categories = new ArrayList<>();
         for (Category category : Category.values()) {
-            if (modules.inCategory(category).isEmpty()) continue;
+            List<Module> inCategory = moduleManager.inCategory(category);
+            if (inCategory.isEmpty()) continue;
             categories.add(category);
-            String title = category == Category.CLIENT ? "Settings" : category.displayName();
-            panels.add(new Panel(category, title, modules.inCategory(category)));
+            modules.addAll(inCategory);
         }
-        this.sidebar = new Sidebar(categories, version);
+        this.sidebar = new Sidebar(categories, moduleManager::inCategory);
         restoreState();
+    }
+
+    // ------------------------------------------------------------ pages
+
+    private ModulePage pageFor(Module module) {
+        return modulePages.computeIfAbsent(module, ModulePage::new);
+    }
+
+    private void open(Page next) {
+        if (next == page) return;
+        if (page != null) forEachWidget(Widget::clickedOutside);
+        page = next;
+        page.onShow();
+        scrollTarget = 0;
+        scroll.snap(0);
+        pageProgress = new Animation(0, 260, Easing.QUINT_OUT);
+        pageProgress.animateTo(1);
+    }
+
+    @Override
+    public boolean isSelected(Module module) {
+        return page instanceof ModulePage modulePage && modulePage.module() == module;
+    }
+
+    @Override
+    public boolean configsSelected() {
+        return page == configsPage;
+    }
+
+    @Override
+    public void select(Module module) {
+        open(pageFor(module));
+    }
+
+    @Override
+    public void selectConfigs() {
+        open(configsPage);
+    }
+
+    private void forEachWidget(java.util.function.Consumer<Widget> action) {
+        if (page == null) return;
+        for (Section section : page.sections()) {
+            for (Widget widget : section.widgets()) action.accept(widget);
+        }
+    }
+
+    private Widget capturingWidget() {
+        if (page == null) return null;
+        for (Section section : page.sections()) {
+            for (Widget widget : section.widgets()) {
+                if (widget.isCapturingKeyboard()) return widget;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------ lifecycle
@@ -97,17 +152,9 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
         closing = false;
         openProgress = new Animation(0, 300, Easing.QUINT_OUT);
         openProgress.animateTo(1);
-        sidebar.search().clear();
-        lastQuery = "";
-        pressedPanel = null;
+        dragging = false;
         settings.setEnabled(true);
-
-        // Panels cascade in one after another.
-        int index = 0;
-        for (Panel panel : panels) {
-            panel.hideInstantly();
-            if (openTabs.contains(panel.category())) panel.show(true, 70 + STAGGER_MS * index++);
-        }
+        if (page != null) page.onShow();
     }
 
     @Override
@@ -132,8 +179,8 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     public void removed() {
         settings.setEnabled(false);
         closing = false;
-        pressedPanel = null;
-        for (Panel panel : panels) panel.clickedOutside();
+        dragging = false;
+        forEachWidget(Widget::clickedOutside);
         saveState();
         config.save();
     }
@@ -145,83 +192,41 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
 
     private void restoreState() {
         JsonObject gui = config.guiState();
-        if (gui.get("openTabs") instanceof JsonArray saved) {
-            openTabs.clear();
+        Set<Category> open = EnumSet.noneOf(Category.class);
+        if (gui.get("expandedCategories") instanceof JsonArray saved) {
             for (JsonElement name : saved) {
                 for (Category category : Category.values()) {
-                    if (name.isJsonPrimitive() && category.name().equals(name.getAsString())) openTabs.add(category);
+                    if (name.isJsonPrimitive() && category.name().equals(name.getAsString())) open.add(category);
                 }
             }
+        } else {
+            open.add(Category.COMBAT);
         }
-        if (gui.get("expandedModules") instanceof JsonArray expanded) {
-            for (Panel panel : panels) panel.loadExpanded(expanded);
+        sidebar.setExpanded(open);
+
+        String saved = gui.get("page") instanceof JsonElement element && element.isJsonPrimitive() ? element.getAsString() : "";
+        if (saved.equals("configs")) {
+            page = configsPage;
+            return;
         }
+        for (Module module : modules) {
+            if (saved.equals("module:" + module.name())) page = pageFor(module);
+        }
+        if (page == null && !modules.isEmpty()) page = pageFor(modules.getFirst());
+        if (page instanceof ModulePage modulePage) sidebar.reveal(modulePage.module());
     }
 
     private void saveState() {
         JsonObject gui = config.guiState();
-        JsonArray tabs = new JsonArray();
-        for (Category category : openTabs) tabs.add(category.name());
         JsonArray expanded = new JsonArray();
-        for (Panel panel : panels) panel.saveExpanded(expanded);
-        gui.add("openTabs", tabs);
-        gui.add("expandedModules", expanded);
-        gui.remove("panels"); // free-floating layout from before the sidebar
-    }
-
-    // ------------------------------------------------------------ tabs
-
-    private String query() {
-        return sidebar.search().query();
-    }
-
-    private Panel panel(Category category) {
-        for (Panel panel : panels) {
-            if (panel.category() == category) return panel;
-        }
-        throw new IllegalArgumentException(category.name());
-    }
-
-    /** Shows the open tabs, or while searching, every panel with a match. */
-    private void updateVisibility() {
-        String query = query();
-        for (Panel panel : panels) {
-            boolean show = query.isEmpty() ? openTabs.contains(panel.category()) : panel.matches(query) > 0;
-            if (show != panel.isShown()) panel.show(show, 0);
-        }
-    }
-
-    @Override
-    public boolean isOpen(Category category) {
-        return panel(category).isShown();
-    }
-
-    @Override
-    public void tabClicked(Category category) {
-        if (searching()) {
-            sidebar.search().clear();
-            openTabs.add(category);
-        } else if (!openTabs.remove(category)) {
-            openTabs.add(category);
-        }
-        updateVisibility();
-    }
-
-    @Override
-    public int badge(Category category) {
-        if (searching()) return panel(category).matches(query());
-        // The ClickGUI module is always on while this screen is open, so its count says nothing.
-        return category == Category.CLIENT ? 0 : panel(category).enabledCount();
-    }
-
-    @Override
-    public boolean searching() {
-        return !query().isEmpty();
-    }
-
-    private void closeTab(Category category) {
-        openTabs.remove(category);
-        panel(category).show(false, 0);
+        for (Category category : sidebar.expanded()) expanded.add(category.name());
+        gui.add("expandedCategories", expanded);
+        if (page == configsPage) gui.addProperty("page", "configs");
+        else if (page instanceof ModulePage modulePage) gui.addProperty("page", "module:" + modulePage.module().name());
+        // Layout from the old tab-and-panel menu.
+        gui.remove("openTabs");
+        gui.remove("expandedModules");
+        gui.remove("panels");
     }
 
     // ------------------------------------------------------------ rendering
@@ -235,6 +240,10 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
 
     private float contentX() {
         return MARGIN + Sidebar.WIDTH + GAP;
+    }
+
+    private float sectionsTop() {
+        return MARGIN + HEADER_HEIGHT + HEADER_GAP;
     }
 
     @Override
@@ -264,18 +273,11 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
         }
 
         int dim = Math.round(settings.dim.floatValue() / 100f * 255f * open);
-        graphics.fillGradient(0, 0, width, height, Colors.withAlpha(0x06060B, Math.round(dim * 0.8f)), Colors.withAlpha(0x06060B, dim));
+        graphics.fillGradient(0, 0, width, height, Colors.withAlpha(0x050607, Math.round(dim * 0.85f)), Colors.withAlpha(0x050607, dim));
 
         Window window = minecraft.getWindow();
         float mx = (float) (minecraft.mouseHandler.getScaledXPos(window) / unitScale);
         float my = (float) (minecraft.mouseHandler.getScaledYPos(window) / unitScale);
-
-        String query = query();
-        if (!query.equals(lastQuery)) {
-            lastQuery = query;
-            scrollTarget = 0;
-            updateVisibility();
-        }
 
         Matrix3x2fStack pose = graphics.pose();
         pose.pushMatrix();
@@ -283,100 +285,87 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
         render.pushAlpha(open);
         ctx.beginFrame(mx, my);
 
-        layoutPanels();
-        boolean overSidebar = mx < MARGIN + Sidebar.WIDTH + GAP / 2f;
-        for (Panel panel : panels) {
-            boolean owns = pressedPanel != null ? panel == pressedPanel : !overSidebar && panel.contains(mx, my);
-            ctx.mouseX = owns ? mx : -1e6f;
-            ctx.mouseY = owns ? my : -1e6f;
-            panel.render(ctx, query, !query.isEmpty());
-        }
-        ctx.mouseX = mx;
-        ctx.mouseY = my;
-        drawEmptyState(query);
-        drawScrollbar();
-
-        // The sidebar slides in from the left as the menu opens.
+        // The sidebar slides in from the left, the page rises into place.
         pose.pushMatrix();
-        pose.translate(-14f * (1f - open), 0);
-        if (pressedPanel != null) ctx.mouseX = -1e6f;
+        pose.translate(-12f * (1f - open), 0);
+        if (dragging) ctx.mouseX = -1e6f;
         sidebar.render(ctx, MARGIN, MARGIN, guiHeight - MARGIN * 2, this);
         ctx.mouseX = mx;
         pose.popMatrix();
 
-        drawTooltip(ctx.tooltip(), mx, my);
+        if (page != null) {
+            pose.pushMatrix();
+            pose.translate(0, 6f * (1f - open));
+            drawHeader();
+            drawSections(mx, my);
+            pose.popMatrix();
+        }
 
+        drawTooltip(ctx.tooltip(), mx, my);
         render.popAlpha();
         pose.popMatrix();
 
         if (ctx.cursor() != null) graphics.requestCursor(ctx.cursor());
     }
 
-    /**
-     * Places panels in a grid beside the sidebar: as many columns as fit, filled left to right,
-     * each column stacking its panels. Opening and closing panels grow and shrink in place, so
-     * the rest of the grid glides instead of jumping.
-     */
-    private void layoutPanels() {
-        float contentX = contentX();
-        float contentWidth = guiWidth - contentX - MARGIN;
-        int columns = Math.max(1, (int) ((contentWidth + GAP) / (MIN_PANEL_WIDTH + GAP)));
-        float panelWidth = Math.clamp((contentWidth - (columns - 1) * GAP) / columns, Math.min(MIN_PANEL_WIDTH, contentWidth), MAX_PANEL_WIDTH);
+    /** The bar across the top: the page's name in a chip, then what it does. */
+    private void drawHeader() {
+        float x = contentX(), w = guiWidth - x - MARGIN;
+        render.roundedRect(x, MARGIN, w, HEADER_HEIGHT, 6f, Theme.HEADER);
+        render.roundedOutline(x, MARGIN, w, HEADER_HEIGHT, 6f, 0.6f, Theme.OUTLINE);
 
-        float[] bottoms = new float[columns];
-        int index = 0;
-        for (Panel panel : panels) {
-            if (!panel.isPresent()) continue;
-            int column = index++ % columns;
-            panel.place(contentX + column * (panelWidth + GAP), MARGIN + bottoms[column] - scroll.get(), panelWidth, column);
-            bottoms[column] += panel.layoutHeight() + GAP * panel.presence();
-        }
-
-        float contentHeight = 0;
-        for (float bottom : bottoms) contentHeight = Math.max(contentHeight, bottom - GAP);
-        maxScroll = Math.max(0, contentHeight - (guiHeight - MARGIN * 2));
-        scrollTarget = Math.clamp(scrollTarget, 0, maxScroll);
-        scroll.animateTo(scrollTarget);
-    }
-
-    private void drawScrollbar() {
-        if (maxScroll <= 0) return;
-        float trackTop = MARGIN, trackHeight = guiHeight - MARGIN * 2;
-        float thumbHeight = Math.max(20f, trackHeight * trackHeight / (trackHeight + maxScroll));
-        float thumbY = trackTop + (trackHeight - thumbHeight) * (scroll.get() / maxScroll);
-        render.roundedRect(guiWidth - 4f, thumbY, 2f, thumbHeight, 1f, theme.accent(120));
-    }
-
-    /** A hint in the middle of the content area when there's nothing to show. */
-    private void drawEmptyState(String query) {
-        boolean anyShown = false;
-        for (Panel panel : panels) anyShown |= panel.isShown();
-        emptyFade.animateTo(anyShown ? 0 : 1);
-        float fade = emptyFade.get();
-        if (fade <= 0.001f) return;
-
-        float centerX = contentX() + (guiWidth - contentX() - MARGIN) / 2f;
-        float centerY = guiHeight / 2f;
-        String title = query.isEmpty() ? "No tabs open" : "No modules match \u201C" + query + "\u201D";
-        String hint = query.isEmpty() ? "Pick a category on the left to open it." : "Try a shorter search, or press Esc to clear it.";
-
-        float cardW = Math.max(render.textWidth(title, true), render.smallWidth(hint)) + 36f, cardH = 70f;
-        float cardX = centerX - cardW / 2f, cardY = centerY - cardH / 2f;
-        render.pushAlpha(fade);
-        render.shadow(cardX, cardY, cardW, cardH, 9f, 14f, Theme.SHADOW);
-        render.roundedRect(cardX, cardY, cardW, cardH, 9f, Theme.PANEL);
-        render.roundedOutline(cardX, cardY, cardW, cardH, 9f, 0.6f, Theme.OUTLINE);
-        float iconY = cardY + 20f;
-        render.circle(centerX, iconY, 11f, theme.accent(30));
-        if (query.isEmpty()) Icons.grid(render, centerX, iconY, 9f, theme.accent());
-        else Icons.search(render, centerX, iconY, 9f, theme.accent());
-        render.textCentered(title, centerX, cardY + 37f, Theme.TEXT, true);
-        render.small(hint, centerX - render.smallWidth(hint) / 2f, cardY + 51f, Theme.TEXT_DIM);
+        float p = pageProgress.get();
+        render.pushAlpha(p);
+        String title = page.title();
+        float chipH = 16f, chipW = render.smallWidth(title) + 14f;
+        float chipX = x + 5f, chipY = MARGIN + (HEADER_HEIGHT - chipH) / 2f;
+        render.roundedRect(chipX, chipY, chipW, chipH, 4f, Theme.CHIP);
+        render.small(title, chipX + 7f, render.smallY(chipY, chipH), Theme.TEXT);
+        float descriptionX = chipX + chipW + 12f;
+        String description = render.ellipsizeSmall(page.description(), x + w - 10f - descriptionX);
+        render.small(description, descriptionX, render.smallY(MARGIN, HEADER_HEIGHT), Theme.HEADER_TEXT);
         render.popAlpha();
     }
 
+    /** The page's sections in a column below the header, scrolling when they don't fit. */
+    private void drawSections(float mx, float my) {
+        float x = contentX(), top = sectionsTop(), bottom = guiHeight - MARGIN;
+        float width = Math.min(COLUMN_WIDTH, guiWidth - x - MARGIN);
+
+        List<Section> sections = page.sections();
+        float contentHeight = 0;
+        for (Section section : sections) contentHeight += section.height() + SECTION_GAP;
+        contentHeight -= SECTION_GAP;
+        maxScroll = Math.max(0, contentHeight - (bottom - top));
+        scrollTarget = Math.clamp(scrollTarget, 0, maxScroll);
+        scroll.animateTo(scrollTarget);
+
+        boolean inside = mx >= x && mx < x + width && my >= top - 4f && my < bottom;
+        if (!inside && !dragging) ctx.mouseX = -1e6f;
+
+        float p = pageProgress.get();
+        render.pushAlpha(p);
+        // Room above and below for the cards' shadows.
+        render.pushScissor(x - 12f, top - 4f, width + 24f, bottom - top + 8f);
+        float cy = top - scroll.get() + 8f * (1f - p);
+        for (Section section : sections) {
+            section.render(ctx, x, cy, width);
+            cy += section.height() + SECTION_GAP;
+        }
+        render.popScissor();
+        render.popAlpha();
+        ctx.mouseX = mx;
+
+        if (maxScroll > 0) {
+            float trackHeight = bottom - top;
+            float thumbHeight = Math.max(20f, trackHeight * trackHeight / (trackHeight + maxScroll));
+            float thumbY = top + (trackHeight - thumbHeight) * (scroll.get() / maxScroll);
+            render.roundedRect(x + width + 5f, thumbY, 2f, thumbHeight, 1f, 0x40FFFFFF);
+        }
+    }
+
     private void drawTooltip(String text, float mx, float my) {
-        if (!settings.descriptions.isOn() || pressedPanel != null) text = null;
+        if (!settings.descriptions.isOn() || dragging) text = null;
         long now = System.currentTimeMillis();
         if (text == null || !text.equals(tooltip)) {
             tooltip = text;
@@ -390,19 +379,19 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
 
         List<String> lines = wrap(tooltip, TOOLTIP_MAX_WIDTH);
         float textWidth = 0;
-        for (String line : lines) textWidth = Math.max(textWidth, render.textWidth(line));
-        float lineHeight = render.lineHeight() + 2f;
-        float w = textWidth + 12f, h = lines.size() * lineHeight + 7f;
+        for (String line : lines) textWidth = Math.max(textWidth, render.smallWidth(line));
+        float lineHeight = 9f;
+        float w = textWidth + 14f, h = lines.size() * lineHeight + 8f;
         float x = Math.min(mx + 10f, guiWidth - w - 4f);
         float y = my + 12f + h > guiHeight - 4f ? my - h - 6f : my + 12f;
 
         render.pushAlpha(fade);
         render.shadow(x, y, w, h, 5f, 10f, 0xA0000000);
-        render.roundedRect(x, y, w, h, 5f, 0xF6121118);
-        render.roundedOutline(x, y, w, h, 5f, 0.6f, theme.accent(70));
-        float ly = y + 4f;
+        render.roundedRect(x, y, w, h, 5f, 0xF4181818);
+        render.roundedOutline(x, y, w, h, 5f, 0.6f, Theme.OUTLINE);
+        float ly = y + 4.5f;
         for (String line : lines) {
-            render.text(line, x + 6f, ly, Theme.TEXT_DIM);
+            render.small(line, x + 7f, ly, Theme.TEXT_DIM);
             ly += lineHeight;
         }
         render.popAlpha();
@@ -413,7 +402,7 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
         StringBuilder line = new StringBuilder();
         for (String word : text.split(" ")) {
             String candidate = line.isEmpty() ? word : line + " " + word;
-            if (!line.isEmpty() && render.textWidth(candidate) > maxWidth) {
+            if (!line.isEmpty() && render.smallWidth(candidate) > maxWidth) {
                 lines.add(line.toString());
                 line.setLength(0);
                 line.append(word);
@@ -432,17 +421,23 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
         return (float) (coordinate / unitScale);
     }
 
+    private boolean inContent(float mx, float my) {
+        float x = contentX();
+        return mx >= x && mx < x + COLUMN_WIDTH && my >= sectionsTop() - 4f && my < guiHeight - MARGIN;
+    }
+
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (closing) return true;
         float mx = toGui(event.x()), my = toGui(event.y());
-        for (Panel panel : panels) panel.clickedOutside();
+        forEachWidget(Widget::clickedOutside);
         if (sidebar.mouseClicked(mx, my, event.button(), this)) return true;
-        for (Panel panel : panels) {
-            if (panel.contains(mx, my)) {
-                pressedPanel = panel;
-                panel.mouseClicked(mx, my, event.button(), () -> closeTab(panel.category()));
-                return true;
+        if (page != null && inContent(mx, my)) {
+            for (Section section : page.sections()) {
+                if (section.mouseClicked(mx, my, event.button())) {
+                    dragging = true;
+                    return true;
+                }
             }
         }
         return true;
@@ -451,8 +446,8 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
         float mx = toGui(event.x()), my = toGui(event.y());
-        for (Panel panel : panels) panel.mouseReleased(mx, my, event.button());
-        pressedPanel = null;
+        forEachWidget(widget -> widget.mouseReleased(mx, my, event.button()));
+        dragging = false;
         return true;
     }
 
@@ -464,7 +459,9 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
 
     @Override
     public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
-        if (toGui(x) >= contentX() - GAP / 2f) scrollTarget -= (float) scrollY * 30f;
+        float mx = toGui(x), my = toGui(y);
+        if (sidebar.contains(mx, my)) sidebar.mouseScrolled(scrollY);
+        else scrollTarget -= (float) scrollY * 30f;
         return true;
     }
 
@@ -472,20 +469,13 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     public boolean keyPressed(KeyEvent event) {
         if (closing) return true;
         int key = event.key();
-        for (Panel panel : panels) {
-            if (panel.isCapturingKeyboard()) {
-                panel.keyPressed(key, event.modifiers());
-                swallowChar = true;
-                return true;
-            }
-        }
-        if (key == GLFW.GLFW_KEY_ESCAPE) {
-            if (searching()) sidebar.search().clear();
-            else onClose();
+        Widget capturing = capturingWidget();
+        if (capturing != null) {
+            // A key the widget used (Enter, a keybind) mustn't also arrive as typed text.
+            if (capturing.keyPressed(key, event.modifiers())) swallowChar = true;
             return true;
         }
-        if (sidebar.search().keyPressed(key, event.hasControlDownWithQuirk())) return true;
-        if (!searching() && settings.bind().matches(key)) {
+        if (key == GLFW.GLFW_KEY_ESCAPE || settings.bind().matches(key)) {
             onClose();
             return true;
         }
@@ -495,9 +485,7 @@ public final class ClickGuiScreen extends Screen implements Sidebar.Host {
     @Override
     public boolean charTyped(CharacterEvent event) {
         if (closing || swallowChar) return true;
-        for (Panel panel : panels) {
-            if (panel.isCapturingKeyboard()) return true;
-        }
-        return sidebar.search().charTyped(event.codepoint());
+        Widget capturing = capturingWidget();
+        return capturing != null && capturing.charTyped(event.codepoint());
     }
 }

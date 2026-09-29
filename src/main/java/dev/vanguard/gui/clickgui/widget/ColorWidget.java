@@ -79,22 +79,22 @@ public final class ColorWidget extends Widget {
 
         boolean hovered = ctx.hovered(x, y, width, ROW_HEIGHT);
         if (hovered) {
-            ctx.tooltip(setting.description());
+            ctx.tooltip(description() + " Right-click to reset.");
             ctx.cursor(CursorTypes.POINTING_HAND);
         }
         hover.animateTo(hovered ? 1 : 0);
 
-        r.rect(x, y, width, ROW_HEIGHT, Colors.fade(Theme.HOVER, hover.get()));
-        float swatchW = 16f, swatchH = 8f;
-        drawLabel(ctx, Widgets.textY(y, ROW_HEIGHT), swatchW, Theme.TEXT);
+        drawHover(ctx, ROW_HEIGHT, hover.get());
+        float swatchW = 22f, swatchH = 12f;
+        drawLabel(ctx, y, ROW_HEIGHT, swatchW, Theme.TEXT);
         float sx = x + width - PAD_X - swatchW, sy = y + (ROW_HEIGHT - swatchH) / 2f;
         if (Colors.alpha(color.argb()) < 255) {
             r.pushScissor(sx, sy, swatchW, swatchH);
-            r.checkerboard(sx, sy, swatchW, swatchH, 2f, 0xFF9A9AA6, 0xFF5A5A66);
+            r.checkerboard(sx, sy, swatchW, swatchH, 2f, 0xFF9A9A9A, 0xFF5A5A5A);
             r.popScissor();
         }
-        r.roundedRect(sx, sy, swatchW, swatchH, 2.5f, color.argb());
-        r.roundedOutline(sx, sy, swatchW, swatchH, 2.5f, 0.6f, 0x33FFFFFF);
+        r.roundedRect(sx, sy, swatchW, swatchH, 3f, color.argb());
+        r.roundedOutline(sx, sy, swatchW, swatchH, 3f, 0.6f, 0x33FFFFFF);
 
         pickerX = x + PAD_X;
         pickerW = width - PAD_X * 2;
@@ -133,7 +133,7 @@ public final class ColorWidget extends Widget {
             drawBarKnob(r, pickerX + alpha / 255f * pickerW, alphaY);
         }
 
-        r.text(Colors.hex(color.argb(), color.allowsAlpha()), pickerX, Widgets.textY(buttonsY, BUTTON_HEIGHT), Theme.TEXT_DIM);
+        r.small(Colors.hex(color.argb(), color.allowsAlpha()), pickerX, r.smallY(buttonsY, BUTTON_HEIGHT), Theme.TEXT_DIM);
         pasteW = BUTTON_HEIGHT;
         copyW = BUTTON_HEIGHT;
         pasteX = pickerX + pickerW - pasteW;
@@ -157,8 +157,7 @@ public final class ColorWidget extends Widget {
         Render2D r = ctx.render;
         boolean hovered = ctx.hovered(bx, by, bw, BUTTON_HEIGHT);
         if (hovered) ctx.cursor(CursorTypes.POINTING_HAND);
-        r.roundedRect(bx, by, bw, BUTTON_HEIGHT, 3f, hovered ? 0xFF22222C : Theme.FIELD);
-        r.roundedOutline(bx, by, bw, BUTTON_HEIGHT, 3f, 0.6f, hovered ? ctx.theme.accent(140) : Theme.OUTLINE);
+        r.roundedRect(bx, by, bw, BUTTON_HEIGHT, 3f, hovered ? Theme.BUTTON_HOVER : Theme.BUTTON);
         return hovered;
     }
 
@@ -169,7 +168,7 @@ public final class ColorWidget extends Widget {
     /** Two overlapping sheets. */
     private static void drawCopyIcon(Render2D r, float cx, float cy, int color) {
         r.roundedOutline(cx - 2.6f, cy - 2.6f, 3.8f, 3.8f, 0.9f, 0.7f, color);
-        r.roundedRect(cx - 1.2f, cy - 1.2f, 3.8f, 3.8f, 0.9f, Theme.FIELD);
+        r.roundedRect(cx - 1.2f, cy - 1.2f, 3.8f, 3.8f, 0.9f, Theme.BUTTON);
         r.roundedOutline(cx - 1.2f, cy - 1.2f, 3.8f, 3.8f, 0.9f, 0.7f, color);
     }
 

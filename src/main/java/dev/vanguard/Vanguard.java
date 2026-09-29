@@ -52,6 +52,7 @@ public final class Vanguard implements ClientModInitializer {
 
         config = new ConfigManager(FabricLoader.getInstance().getGameDir().resolve(MOD_ID), modules);
         config.load();
+        modules.get(dev.vanguard.module.modules.client.ClickGuiModule.class).migrateOldDefaults();
         Runtime.getRuntime().addShutdownHook(new Thread(config::save, "Vanguard config save"));
 
         LOG.info("Vanguard initialized with {} modules", modules.all().size());

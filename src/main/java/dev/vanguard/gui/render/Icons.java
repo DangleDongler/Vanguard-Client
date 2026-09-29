@@ -109,6 +109,30 @@ public final class Icons {
         r.line(ox + d + t * 0.3f, oy + d + t * 0.3f, cx + s * 0.42f, cy + s * 0.42f, t * 1.15f, c);
     }
 
+    /** The Vanguard mark: a bold V with rounded strokes. */
+    public static void logo(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * 0.21f;
+        float top = cy - s * 0.34f, bottom = cy + s * 0.36f, half = s * 0.40f;
+        r.line(cx - half, top, cx, bottom, t, c);
+        r.line(cx, bottom, cx + half, top, t, c);
+    }
+
+    /** A sheet with a folded corner and two lines of text. */
+    public static void file(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * STROKE;
+        float w = s * 0.62f, h = s * 0.8f, x = cx - w / 2f, y = cy - h / 2f;
+        r.roundedOutline(x, y, w, h, s * 0.1f, t, c);
+        r.line(x + w * 0.28f, cy - s * 0.05f, x + w * 0.72f, cy - s * 0.05f, t, c);
+        r.line(x + w * 0.28f, cy + s * 0.15f, x + w * 0.6f, cy + s * 0.15f, t, c);
+    }
+
+    public static void folder(Render2D r, float cx, float cy, float s, int c) {
+        float t = s * STROKE;
+        float w = s * 0.84f, h = s * 0.6f, x = cx - w / 2f, y = cy - h / 2f + s * 0.06f;
+        r.roundedRect(x, y - s * 0.12f, w * 0.42f, s * 0.2f, s * 0.06f, c);
+        r.roundedOutline(x, y, w, h, s * 0.1f, t, c);
+    }
+
     public static void close(Render2D r, float cx, float cy, float s, int c) {
         float t = s * STROKE;
         float h = s * 0.32f;

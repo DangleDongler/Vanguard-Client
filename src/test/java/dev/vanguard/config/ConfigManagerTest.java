@@ -2,7 +2,8 @@ package dev.vanguard.config;
 
 import dev.vanguard.module.ModuleManager;
 import dev.vanguard.module.modules.client.ClickGuiModule;
-import dev.vanguard.module.modules.combat.AutoCrystal;
+import dev.vanguard.module.modules.combat.ShieldBreaker;
+import dev.vanguard.module.modules.combat.TriggerBot;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,12 +28,13 @@ class ConfigManagerTest {
     @Test
     void roundTripsModulesSettingsBindsAndGuiState() {
         ModuleManager original = modules();
-        AutoCrystal crystal = original.get(AutoCrystal.class);
-        crystal.setEnabled(true);
-        crystal.bind().set(75);
-        crystal.placeRange.set(5.2);
-        crystal.swap.set(AutoCrystal.Swap.NORMAL);
-        crystal.renderColor.set(0x40FF0000);
+        TriggerBot triggerBot = original.get(TriggerBot.class);
+        triggerBot.setEnabled(true);
+        triggerBot.bind().set(75);
+        triggerBot.spacing.set(87.0);
+        triggerBot.crits.set(TriggerBot.Crits.ONLY);
+        triggerBot.hitSelect.set(true);
+        original.get(ClickGuiModule.class).accent.set(0xFF123456);
         ConfigManager config = new ConfigManager(dir, original);
         config.guiState().addProperty("marker", 7);
         config.save();
@@ -40,12 +42,13 @@ class ConfigManagerTest {
         ModuleManager restored = modules();
         ConfigManager reloaded = new ConfigManager(dir, restored);
         reloaded.load();
-        AutoCrystal copy = restored.get(AutoCrystal.class);
+        TriggerBot copy = restored.get(TriggerBot.class);
         assertTrue(copy.isEnabled());
         assertEquals(75, copy.bind().key());
-        assertEquals(5.2, copy.placeRange.get());
-        assertEquals(AutoCrystal.Swap.NORMAL, copy.swap.get());
-        assertEquals(0x40FF0000, copy.renderColor.argb());
+        assertEquals(87.0, copy.spacing.get());
+        assertEquals(TriggerBot.Crits.ONLY, copy.crits.get());
+        assertTrue(copy.hitSelect.isOn());
+        assertEquals(0xFF123456, restored.get(ClickGuiModule.class).accent.argb());
         assertEquals(7, reloaded.guiState().get("marker").getAsInt());
     }
 
@@ -75,20 +78,54 @@ class ConfigManagerTest {
         Files.writeString(dir.resolve("config.json"), "{ not json");
         ModuleManager modules = modules();
         new ConfigManager(dir, modules).load();
-        assertEquals(4.5, modules.get(AutoCrystal.class).placeRange.get());
+        assertEquals(100.0, modules.get(TriggerBot.class).spacing.get());
     }
 
     @Test
     void malformedModuleEntryIsSkipped() throws IOException {
         Files.writeString(dir.resolve("config.json"), """
             {"modules": {
-              "AutoCrystal": {"enabled": "maybe", "settings": {"Place Range": "far"}},
-              "AutoTotem": {"settings": {"Health": 12.0}}
+              "TriggerBot": {"enabled": "maybe", "settings": {"Spacing": "far"}},
+              "ShieldBreaker": {"settings": {"Reaction Time": 300.0}}
             }}
             """);
         ModuleManager modules = modules();
         new ConfigManager(dir, modules).load();
-        assertEquals(4.5, modules.get(AutoCrystal.class).placeRange.get());
-        assertEquals(12.0, modules.get(dev.vanguard.module.modules.combat.AutoTotem.class).health.get());
+        assertEquals(100.0, modules.get(TriggerBot.class).spacing.get());
+        assertEquals(300.0, modules.get(ShieldBreaker.class).reactionTime.get());
+    }
+
+    @Test
+    void namedConfigsSaveLoadAndDelete() {
+        ModuleManager modules = modules();
+        ConfigManager config = new ConfigManager(dir, modules);
+        TriggerBot triggerBot = modules.get(TriggerBot.class);
+        triggerBot.spacing.set(80.0);
+        assertTrue(config.saveConfig("Crystal PvP"));
+        assertEquals(java.util.List.of("Crystal PvP"), config.configNames());
+
+        triggerBot.spacing.set(60.0);
+        assertTrue(config.loadConfig("Crystal PvP"));
+        assertEquals(80.0, triggerBot.spacing.get());
+
+        assertTrue(config.deleteConfig("Crystal PvP"));
+        assertTrue(config.configNames().isEmpty());
+        assertFalse(config.loadConfig("Crystal PvP"));
+    }
+
+    @Test
+    void configNamesAreSafeFileNames() {
+        assertEquals("evil", ConfigManager.cleanName("../evil"));
+        assertEquals("a b-c_d", ConfigManager.cleanName("  a b-c_d  "));
+        assertEquals("", ConfigManager.cleanName("///"));
+        assertEquals(ConfigManager.MAX_NAME_LENGTH, ConfigManager.cleanName("x".repeat(40)).length());
+        assertFalse(new ConfigManager(dir, modules()).saveConfig("..."));
+    }
+
+    @Test
+    void savingAConfigDoesNotTouchTheLiveOne() {
+        ConfigManager config = new ConfigManager(dir, modules());
+        config.saveConfig("test");
+        assertFalse(Files.exists(dir.resolve("config.json")));
     }
 }

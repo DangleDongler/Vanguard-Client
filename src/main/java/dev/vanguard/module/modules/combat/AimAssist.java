@@ -45,10 +45,18 @@ public final class AimAssist extends Module {
 
     public enum Priority { CROSSHAIR, NEAREST, LOWEST_HEALTH }
 
-    public final NumberSetting speed = number("Speed", "How quickly your aim is pulled onto the target.", 50, 1, 100, 1, "%");
+    {
+        section("Aim");
+    }
+
+    public final NumberSetting speed =number("Speed", "How quickly your aim is pulled onto the target.", 50, 1, 100, 1, "%");
     public final EnumSetting<AimAt> aimAt = mode("Aim At", "Where on the target to aim. Closest only helps when your crosshair is off their hitbox.", AimAt.CLOSEST);
     public final BoolSetting vertical = bool("Vertical", "Also help you aim up and down. Off: left and right only.", true);
-    public final NumberSetting range = number("Range", "How close a target has to be.", 4.5, 1, 8, 0.1, "m");
+    {
+        section("Targets");
+    }
+
+    public final NumberSetting range =number("Range", "How close a target has to be.", 4.5, 1, 8, 0.1, "m");
     public final NumberSetting fov = number("Field of View", "How far from your crosshair a target can be and still get help.", 90, 10, 180, 5, "°");
     public final EnumSetting<Priority> priority = mode("Priority", "Which target to pick when several are in view.", Priority.CROSSHAIR);
     public final BoolSetting players = bool("Players", "Help aim at players.", true);

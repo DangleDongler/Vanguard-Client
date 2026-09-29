@@ -18,6 +18,10 @@ public abstract class Setting<T> {
 
     private BooleanSupplier visibility = () -> true;
     private Consumer<T> changeListener = v -> {};
+    private String section = DEFAULT_SECTION;
+
+    /** The section a setting is shown in when its module doesn't name one. */
+    public static final String DEFAULT_SECTION = "Settings";
 
     protected Setting(String name, String description, T defaultValue) {
         this.name = name;
@@ -59,6 +63,15 @@ public abstract class Setting<T> {
 
     public boolean isVisible() {
         return visibility.getAsBoolean();
+    }
+
+    /** The heading this setting is grouped under in the GUI. */
+    public String section() {
+        return section;
+    }
+
+    public void setSection(String section) {
+        this.section = section;
     }
 
     /** Hides this setting in the GUI unless {@code condition} holds, e.g. a sub-option of a toggle. */

@@ -10,9 +10,14 @@ import dev.vanguard.gui.render.Render2D;
 import dev.vanguard.setting.NumberSetting;
 import org.lwjgl.glfw.GLFW;
 
+/** Label and value on one line, a full-width track below. Drag to set, right-click to reset. */
 public final class SliderWidget extends Widget {
-    private static final float HEIGHT = 21f;
-    private static final float TRACK_H = 3f;
+    private static final float HEIGHT = 32f;
+    private static final float LABEL_HEIGHT = 16f;
+    private static final float TRACK_Y = 19f;
+    private static final float TRACK_H = 3.2f;
+    private static final float KNOB_W = 5f;
+    private static final float KNOB_H = 6f;
 
     private final NumberSetting number;
     private final Animation fill;
@@ -43,7 +48,7 @@ public final class SliderWidget extends Widget {
         Render2D r = ctx.render;
         boolean hovered = ctx.hovered(x, y, width, HEIGHT);
         if (hovered || dragging) {
-            ctx.tooltip(setting.description());
+            ctx.tooltip(description());
             ctx.cursor(CursorTypes.RESIZE_EW);
         }
         hover.animateTo(hovered || dragging ? 1 : 0);
@@ -55,24 +60,20 @@ public final class SliderWidget extends Widget {
             fill.animateTo((float) number.progress());
         }
 
-        r.rect(x, y, width, HEIGHT, Colors.fade(Theme.HOVER, hover.get()));
-        float textY = y + 3.5f;
+        drawHover(ctx, HEIGHT, hover.get());
         String value = number.format();
-        float valueWidth = r.textWidth(value);
-        drawLabel(ctx, textY, valueWidth, Theme.TEXT);
-        r.text(value, x + width - PAD_X - valueWidth, textY, Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, hover.get()));
+        float valueWidth = r.smallWidth(value);
+        drawLabel(ctx, y, LABEL_HEIGHT, valueWidth, Theme.TEXT);
+        r.small(value, x + width - PAD_X - valueWidth, r.smallY(y, LABEL_HEIGHT), Colors.lerp(Theme.TEXT_DIM, Theme.TEXT, hover.get()));
 
-        float tx = trackX(), tw = trackWidth(), ty = y + HEIGHT - 6f;
-        float progress = fill.get();
+        float tx = trackX(), tw = trackWidth(), ty = y + TRACK_Y;
         r.roundedRect(tx, ty, tw, TRACK_H, TRACK_H / 2f, Theme.TRACK);
-        float filled = tw * progress;
-        if (filled > 0.5f) {
-            r.roundedRect(tx, ty, Math.max(filled, TRACK_H), TRACK_H, TRACK_H / 2f, ctx.theme.accent());
-        }
-        float knob = 2.6f + 0.9f * hover.get();
-        float kx = tx + filled;
-        r.shadow(kx - knob, ty + TRACK_H / 2f - knob, knob * 2, knob * 2, knob, 3f, 0x66000000);
-        r.circle(kx, ty + TRACK_H / 2f, knob, Theme.KNOB);
+        float filled = tw * fill.get();
+        int accent = ctx.theme.accent();
+        if (filled > 0.5f) r.roundedRect(tx, ty, Math.max(filled, TRACK_H), TRACK_H, TRACK_H / 2f, accent);
+        float kx = Math.clamp(tx + filled - KNOB_W / 2f, tx, tx + tw - KNOB_W);
+        float ky = ty + TRACK_H / 2f - KNOB_H / 2f;
+        r.roundedRect(kx, ky, KNOB_W, KNOB_H, 1.4f, Colors.lerp(accent, 0xFFFFFFFF, 0.15f * hover.get()));
     }
 
     @Override

@@ -74,11 +74,19 @@ public final class TriggerBot extends Module {
         }
     }
 
-    public final EnumSetting<Crits> crits = mode("Crits", "Priority: in the air, waits for the fall so the hit crits (jump crits and P-crits); on the ground, hits right away. Crits Only: only hits when it will crit.", Crits.PRIORITY);
+    {
+        section("Hitting");
+    }
+
+    public final EnumSetting<Crits> crits =mode("Crits", "Priority: in the air, waits for the fall so the hit crits (jump crits and P-crits); on the ground, hits right away. Crits Only: only hits when it will crit.", Crits.PRIORITY);
     public final NumberSetting spacing = number("Spacing", "How far into your reach a target must be before you hit. 100% hits the moment they step into reach (outspacing).", 100, 50, 100, 1, "%");
     public final BoolSetting serverPosition = bool("Server Position", "Also aims at where the server says the target is right now. Your game draws them a little behind that, so first hits land sooner.", true);
     public final BoolSetting hitSelect = bool("Hit Select", "In ground trades, waits for the opponent to swing first (hit or miss), then hits back instantly. Hits anyway after a short wait.", false);
-    public final BoolSetting weaponsOnly = bool("Weapons Only", "Only attack while holding a sword, axe, mace, spear or trident.", true);
+    {
+        section("Targets");
+    }
+
+    public final BoolSetting weaponsOnly =bool("Weapons Only", "Only attack while holding a sword, axe, mace, spear or trident.", true);
     public final BoolSetting skipShields = bool("Skip Shields", "Don't waste a hit on a player blocking with a shield. Axes still hit, to disable it, and ShieldBreaker swaps to one for you.", true);
     public final BoolSetting players = bool("Players", "Attack players.", true);
     public final BoolSetting mobs = bool("Mobs", "Attack mobs and animals.", false);

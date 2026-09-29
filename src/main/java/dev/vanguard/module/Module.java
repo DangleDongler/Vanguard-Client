@@ -19,6 +19,7 @@ public abstract class Module {
     private final List<Setting<?>> settings = new ArrayList<>();
     private final KeybindSetting bind;
     private boolean enabled;
+    private String currentSection = Setting.DEFAULT_SECTION;
 
     protected Module(String name, String description, Category category) {
         this(name, description, category, Keys.NONE);
@@ -80,8 +81,17 @@ public abstract class Module {
     }
 
     protected final <S extends Setting<?>> S add(S setting) {
+        setting.setSection(currentSection);
         settings.add(setting);
         return setting;
+    }
+
+    /**
+     * Groups the settings declared after this call under {@code name} in the GUI, until the next
+     * call. Use it from an instance initializer between the setting fields.
+     */
+    protected final void section(String name) {
+        currentSection = name;
     }
 
     protected final BoolSetting bool(String name, String description, boolean defaultValue) {

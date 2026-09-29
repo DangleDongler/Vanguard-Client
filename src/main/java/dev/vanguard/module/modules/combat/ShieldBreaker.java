@@ -50,12 +50,20 @@ import net.minecraft.world.phys.EntityHitResult;
  * hand for at least a tick before the hit, which is sent with its arm swing like any click.
  */
 public final class ShieldBreaker extends Module {
-    public final BoolSetting automatic = bool("Automatic", "Breaks a raised shield by itself when your crosshair is on it. Off: only when you attack.", true);
+    {
+        section("Breaking");
+    }
+
+    public final BoolSetting automatic =bool("Automatic", "Breaks a raised shield by itself when your crosshair is on it. Off: only when you attack.", true);
     public final NumberSetting reactionTime = number("Reaction Time", "How long it waits after a shield comes up before breaking it. Counts from when the shield can block (a quarter second after it's raised).", 100, 0, 1000, 10, "ms")
         .visibleWhen(automatic::isOn);
     public final NumberSetting attackDelay = number("Attack Delay", "Waits at least this long after your last hit (yours or TriggerBot's) before breaking, so it doesn't swing again right away.", 250, 0, 1000, 10, "ms")
         .visibleWhen(automatic::isOn);
-    public final NumberSetting swapDelay = number("Swap Delay", "Ticks between switching to the axe and hitting with it. 1 tick = 50 ms. The switch always goes out at least a tick before the hit.", 1, 1, 10, 1, "t");
+    {
+        section("Swapping");
+    }
+
+    public final NumberSetting swapDelay =number("Swap Delay", "Ticks between switching to the axe and hitting with it. 1 tick = 50 ms. The switch always goes out at least a tick before the hit.", 1, 1, 10, 1, "t");
     public final BoolSetting swapBack = bool("Swap Back", "Switch back to what you were holding after the hit.", true);
     public final NumberSetting swapBackDelay = number("Swap Back Delay", "Ticks between the hit and switching back. 1 tick = 50 ms. At least 2, so the server always counts the switch (the normal game can't switch back any sooner).", 3, 2, 10, 1, "t")
         .visibleWhen(swapBack::isOn);

@@ -6,20 +6,25 @@ A Fabric utility client for anarchy servers, built for **Minecraft 1.21.11**.
 
 ## Status
 
-The foundation and the **ClickGUI** are done:
+Working modules: **AimAssist**, **TriggerBot**, **ShieldBreaker** and **SprintReset** (Combat), plus the
+ClickGUI's own settings (Client). Modules that didn't do anything yet have been removed; they'll come
+back as they're built.
 
-- A docked sidebar that works as a tab manager. Each category tab opens or closes its panel, and the Settings tab holds the ClickGUI's own options. The sidebar also has search, how many modules are on in each category, and your skin, name and server
-- Open panels arrange themselves in a grid beside the sidebar and glide into place as tabs open and close. The whole area scrolls when it overflows
-- Module rows with an on/off switch, the bound key, and a settings arrow that appears on hover. Settings open in an inset card
-- A settings widget for every setting type: toggle switch, slider, mode dropdown, color picker (saturation/value, hue, alpha, copy/paste hex) and keybind
-- Settings that only show when relevant (for example, Render Color only while Render is on)
-- Module search: start typing anywhere. Only categories with a match stay open until you clear it
-- Custom anti-aliased rendering for rounded shapes, soft shadows and line icons, plus the bundled Inter font (or Minecraft's font)
-- Its own scale setting, so the menu looks the same at any Minecraft GUI scale
-- Accent color or rainbow, background blur and dim, adjustable animation speed, hover descriptions
-- A module/setting framework and a JSON config (`.minecraft/vanguard/config.json`), which also remembers open tabs and expanded modules
+The **ClickGUI**:
 
-AimAssist, TriggerBot, ShieldBreaker and SprintReset work. The other combat, movement and render modules are **placeholders**: they declare their settings so the GUI has real content, but they don't do anything yet.
+- A sidebar with the Vanguard logo, each category with its modules underneath (click a category to
+  fold it), and Configs at the bottom
+- A page per module: a header bar with its name and what it does, then its settings in sections.
+  Main holds the on/off switch and key; the rest are grouped (for example Aim and Targets)
+- Switches, sliders, dropdowns, key boxes with a clear button, and a color picker, all in a dark,
+  monochrome style over the blurred world
+- Configs: save your setup under a name, then load, update or delete it later
+  (`.minecraft/vanguard/configs/`)
+- Settings that only show when relevant slide in and out, pages fade in, categories fold smoothly
+- Hover any setting for a description; the menu opens where you left it
+- Its own scale setting, so the menu looks the same at any Minecraft GUI scale; accent color or
+  rainbow, background blur and dim, animation speed, Inter or Minecraft's font
+- Everything is saved to `.minecraft/vanguard/config.json`
 
 ## Aim Assist
 
@@ -260,14 +265,15 @@ the step back resumed on safe ground.
 
 | Action | Input |
 | --- | --- |
-| Open or close the ClickGUI | Right Shift (the ClickGUI's own bind) |
-| Open or close a category | Click its tab in the sidebar, or the × on a panel's header |
-| Toggle a module | Click its row |
-| Show a module's settings | Click the arrow that appears on hover, or right-click the row |
-| Search | Type; Escape clears, then closes |
-| Scroll | Mouse wheel over the panels |
+| Open or close the ClickGUI | Right Shift (the ClickGUI's own bind), or Escape to close |
+| Fold or unfold a category | Click it in the sidebar |
+| Open a module's page | Click it in the sidebar |
+| Turn a module on or off | Its Toggle switch, or right-click it in the sidebar |
 | Reset a slider or color | Right-click it |
-| Bind a key | Click the bind box, press a key (Backspace or Delete to unbind, Escape to cancel) |
+| Pick a mode | Click the box to open the list; right-click to cycle |
+| Bind a key | Click the key box, press a key (Backspace or Delete to unbind, Escape to cancel); the × clears it |
+| Scroll | Mouse wheel over the page or the sidebar |
+| Save a config | Configs page: type a name, press Enter or Save |
 
 ## Building
 
@@ -286,14 +292,15 @@ src/main/java/dev/vanguard/
   Vanguard.java              entrypoint and singletons
   module/                    Module, Category, ModuleManager, module classes
   setting/                   Bool, Number, Enum, Color and Keybind settings
-  module/modules/combat/     AimAssist, TriggerBot + placeholders
+  module/modules/combat/     AimAssist, TriggerBot, ShieldBreaker, SprintReset
+  module/modules/client/     ClickGUI settings
   util/                      aim math (RotationUtil, AimSpring), crit timing, server sprint tracking,
                              crosshair picking with server positions, shield rules
-  config/                    JSON persistence
+  config/                    JSON persistence and named configs
   gui/render/                Render2D, the shape pipeline and shader glue, icons, colors
   gui/anim/                  time-based animations and easing curves
-  gui/clickgui/              screen, sidebar, panels, module rows, search, theme
-  gui/clickgui/widget/       one widget per setting type
+  gui/clickgui/              screen, sidebar, pages (module, configs), sections, theme
+  gui/clickgui/widget/       one widget per setting type, plus buttons and a text field
   mixin/                     keyboard hook for binds; per-frame combat hook; attack, tick and packet
                              hooks; accessors
 src/main/resources/assets/vanguard/

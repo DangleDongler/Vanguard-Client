@@ -37,6 +37,7 @@ public final class Render2D {
     private Style regularStyle = Style.EMPTY;
     private Style boldStyle = Style.EMPTY.withBold(true);
     private Style smallStyle = Style.EMPTY;
+    private Style smallBoldStyle = Style.EMPTY.withBold(true);
 
     // Shape under construction.
     private float[] vertices = new float[64 * ShapeRenderState.FLOATS_PER_VERTEX];
@@ -62,10 +63,12 @@ public final class Render2D {
                 regularStyle = fontStyle("inter_");
                 boldStyle = fontStyle("inter_bold_");
                 smallStyle = fontStyle("inter_small_");
+                smallBoldStyle = fontStyle("inter_small_bold_");
             } else {
                 regularStyle = Style.EMPTY;
                 boldStyle = Style.EMPTY.withBold(true);
                 smallStyle = Style.EMPTY;
+                smallBoldStyle = Style.EMPTY.withBold(true);
             }
         }
     }
@@ -350,6 +353,44 @@ public final class Render2D {
     public float small(String text, float x, float y, int color) {
         return draw(sequence(text, smallStyle), x, y, color, smallScale());
     }
+
+    /** Small text in a heavier weight, for labels. */
+    public float smallBold(String text, float x, float y, int color) {
+        return draw(sequence(text, smallBoldStyle), x, y, color, smallScale());
+    }
+
+    public float smallBoldWidth(String text) {
+        return mc.font.getSplitter().stringWidth(sequence(text, smallBoldStyle)) * smallScale();
+    }
+
+    /** Captions below small text, like a section label in capitals. */
+    public float tiny(String text, float x, float y, int color) {
+        return draw(sequence(text, smallBoldStyle), x, y, color, smallScale() * TINY_SCALE);
+    }
+
+    public float tinyWidth(String text) {
+        return smallBoldWidth(text) * TINY_SCALE;
+    }
+
+    /** Cuts small text to fit {@code maxWidth}, adding an ellipsis when shortened. */
+    public String ellipsizeSmall(String text, float maxWidth) {
+        return ellipsizeSmall(text, maxWidth, false);
+    }
+
+    public String ellipsizeSmall(String text, float maxWidth, boolean bold) {
+        if (smallWidth(text, bold) <= maxWidth) return text;
+        String ellipsis = "…";
+        float budget = maxWidth - smallWidth(ellipsis, bold);
+        int end = text.length();
+        while (end > 0 && smallWidth(text.substring(0, end), bold) > budget) end--;
+        return text.substring(0, end).stripTrailing() + ellipsis;
+    }
+
+    private float smallWidth(String text, boolean bold) {
+        return bold ? smallBoldWidth(text) : smallWidth(text);
+    }
+
+    private static final float TINY_SCALE = 0.8f;
 
     /** Inter ships a real small size; Minecraft's pixel font is scaled down instead. */
     private float smallScale() {

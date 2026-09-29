@@ -1,25 +1,10 @@
 package dev.vanguard.module;
 
 import dev.vanguard.module.modules.client.ClickGuiModule;
-import dev.vanguard.module.modules.combat.AutoCrystal;
-import dev.vanguard.module.modules.combat.AutoTotem;
 import dev.vanguard.module.modules.combat.AimAssist;
 import dev.vanguard.module.modules.combat.ShieldBreaker;
 import dev.vanguard.module.modules.combat.SprintReset;
-import dev.vanguard.module.modules.combat.Surround;
 import dev.vanguard.module.modules.combat.TriggerBot;
-import dev.vanguard.module.modules.misc.AutoReconnect;
-import dev.vanguard.module.modules.misc.FakePlayer;
-import dev.vanguard.module.modules.movement.ElytraFly;
-import dev.vanguard.module.modules.movement.Sprint;
-import dev.vanguard.module.modules.movement.Velocity;
-import dev.vanguard.module.modules.player.AutoEat;
-import dev.vanguard.module.modules.player.FastPlace;
-import dev.vanguard.module.modules.render.ESP;
-import dev.vanguard.module.modules.render.Fullbright;
-import dev.vanguard.module.modules.render.HoleESP;
-import dev.vanguard.module.modules.world.Nuker;
-import dev.vanguard.module.modules.world.Scaffold;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,30 +19,10 @@ public final class ModuleManager {
     private final Map<Category, List<Module>> byCategory = new EnumMap<>(Category.class);
 
     public void init() {
-        register(new AutoCrystal());
         register(new AimAssist());
         register(new TriggerBot());
         register(new ShieldBreaker());
         register(new SprintReset());
-        register(new AutoTotem());
-        register(new Surround());
-
-        register(new ElytraFly());
-        register(new Sprint());
-        register(new Velocity());
-
-        register(new ESP());
-        register(new HoleESP());
-        register(new Fullbright());
-
-        register(new AutoEat());
-        register(new FastPlace());
-
-        register(new Scaffold());
-        register(new Nuker());
-
-        register(new AutoReconnect());
-        register(new FakePlayer());
 
         register(new ClickGuiModule());
 

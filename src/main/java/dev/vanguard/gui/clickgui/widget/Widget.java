@@ -1,31 +1,47 @@
 package dev.vanguard.gui.clickgui.widget;
 
 import dev.vanguard.gui.clickgui.GuiContext;
+import dev.vanguard.gui.clickgui.Theme;
+import dev.vanguard.gui.render.Colors;
 import dev.vanguard.setting.Setting;
 
 /**
- * A setting row inside an expanded module. Widgets lay themselves out while rendering
- * and hit-test input against the bounds from the last frame.
+ * One row in a section of a page: a setting, or a control that isn't a setting (the module's
+ * on/off switch, a config entry). Widgets lay themselves out while rendering and hit-test input
+ * against the bounds from the last frame.
  */
 public abstract class Widget {
-    public static final float PAD_X = 8f;
-    public static final float ROW_HEIGHT = 14f;
+    public static final float PAD_X = 7f;
+    public static final float ROW_HEIGHT = 18f;
 
+    /** Null for rows that aren't a setting. */
     protected final Setting<?> setting;
+    private final String label;
+    private final String description;
     protected float x;
     protected float y;
     protected float width;
 
     protected Widget(Setting<?> setting) {
-        this.setting = setting;
+        this(setting, setting.name(), setting.description());
     }
 
-    public Setting<?> setting() {
-        return setting;
+    protected Widget(Setting<?> setting, String label, String description) {
+        this.setting = setting;
+        this.label = label;
+        this.description = description;
+    }
+
+    public String label() {
+        return label;
+    }
+
+    public String description() {
+        return description;
     }
 
     public boolean isVisible() {
-        return setting.isVisible();
+        return setting == null || setting.isVisible();
     }
 
     /** Current (possibly animating) height. */
@@ -65,13 +81,18 @@ public abstract class Widget {
         return false;
     }
 
+    /** A faint highlight behind a hovered row. */
+    protected void drawHover(GuiContext ctx, float rowHeight, float hover) {
+        if (hover > 0.001f) ctx.render.roundedRect(x + 2f, y, width - 4f, rowHeight, 3f, Colors.fade(Theme.HOVER, hover));
+    }
+
     /**
-     * Draws the setting name at the left of a row, shortened with an ellipsis so it never
-     * runs into the {@code rightReserve} units of controls on the right.
+     * Draws the label at the left of a row, shortened with an ellipsis so it never runs into the
+     * {@code rightReserve} units of controls on the right.
      */
-    protected void drawLabel(GuiContext ctx, float textY, float rightReserve, int color) {
-        float available = width - PAD_X * 2 - rightReserve - 4f;
-        ctx.render.text(ctx.render.ellipsize(setting.name(), available, false), x + PAD_X, textY, color);
+    protected void drawLabel(GuiContext ctx, float rowY, float rowHeight, float rightReserve, int color) {
+        float available = width - PAD_X * 2 - rightReserve - 6f;
+        ctx.render.smallBold(ctx.render.ellipsizeSmall(label, available, true), x + PAD_X, ctx.render.smallY(rowY, rowHeight), color);
     }
 
     protected boolean contains(double mouseX, double mouseY, float rx, float ry, float rw, float rh) {
