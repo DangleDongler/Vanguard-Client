@@ -1,6 +1,7 @@
 package dev.vanguard.mixin;
 
 import dev.vanguard.Vanguard;
+import dev.vanguard.module.modules.combat.ShieldBreaker;
 import dev.vanguard.module.modules.combat.SprintReset;
 import dev.vanguard.util.Latency;
 import dev.vanguard.util.ServerSprintTracker;
@@ -26,5 +27,7 @@ public abstract class MultiPlayerGameModeMixin {
         sprint.onAttack(player.getAttackStrengthScale(0.5f), player.position(), Latency.answerTicks(Minecraft.getInstance()));
         SprintReset sprintReset = vanguard.sprintReset();
         if (sprintReset != null) sprintReset.onAttack(target);
+        ShieldBreaker shieldBreaker = vanguard.shieldBreaker();
+        if (shieldBreaker != null) shieldBreaker.onAttackSent();
     }
 }

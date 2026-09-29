@@ -16,13 +16,16 @@ public abstract class MinecraftMixin {
     @Shadow
     protected int missTime;
 
-    /** Runs before every attack (your clicks and modules alike), before the held item is read. */
-    @Inject(method = "startAttack", at = @At("HEAD"))
+    /**
+     * Runs before every attack (your clicks and modules alike), before the held item is read.
+     * ShieldBreaker can hold one back while it switches to the axe; the hit then comes a few ticks later.
+     */
+    @Inject(method = "startAttack", at = @At("HEAD"), cancellable = true)
     private void vanguard$beforeAttack(CallbackInfoReturnable<Boolean> cir) {
         if (this.missTime > 0) return;
         Vanguard vanguard = Vanguard.get();
         ShieldBreaker shieldBreaker = vanguard == null ? null : vanguard.shieldBreaker();
-        if (shieldBreaker != null) shieldBreaker.beforeAttack((Minecraft) (Object) this);
+        if (shieldBreaker != null && shieldBreaker.beforeAttack((Minecraft) (Object) this)) cir.setReturnValue(false);
     }
 
     @Inject(method = "tick", at = @At("TAIL"))

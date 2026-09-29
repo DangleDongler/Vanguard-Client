@@ -2,15 +2,22 @@ package dev.vanguard.module.modules.combat;
 
 import dev.vanguard.Vanguard;
 import dev.vanguard.mixin.MinecraftInvoker;
+import dev.vanguard.mixin.MultiPlayerGameModeAccessor;
 import dev.vanguard.module.Category;
 import dev.vanguard.module.Module;
 import dev.vanguard.setting.BoolSetting;
+import dev.vanguard.setting.NumberSetting;
 import dev.vanguard.util.Crosshair;
 import dev.vanguard.util.Latency;
 import dev.vanguard.util.ShieldTracker;
 import dev.vanguard.util.Shields;
+import dev.vanguard.util.SwapSchedule;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -21,13 +28,14 @@ import net.minecraft.world.phys.EntityHitResult;
  *
  * <p>How shields work in 1.21.11 (see {@link Shields}): a hit from an axe that the shield blocks
  * puts all of the holder's shields on a 5 second cooldown. It needs no charge and has no randomness.
- * Every hit resets your own charge anyway, so the fastest way to a full-strength hit on an
- * unshielded opponent is to break the shield the moment it goes up, then hit when your weapon is
- * charged again: 12 ticks later with a sword, well inside the 100 tick window.
- *
- * <p>The swap only happens when the server would really block you: their shield has been up for its
+ * The swap only happens when the server would really block you: their shield has been up for its
  * 5 tick delay, and you're within its 90 degree cover. Before that, or from behind, your normal hit
  * already lands, so it never wastes a hit on the axe.
+ *
+ * <p><b>Pacing:</b> with Automatic, it waits the Reaction Time after a shield can block, and the
+ * Attack Delay after your last hit, before it starts. Then it switches to the axe, holds it for the
+ * Swap Delay, hits, and switches back after the Swap Back Delay. When you click a raised shield
+ * yourself, your click starts it straight away (with the swap delays).
  *
  * <p><b>One axe swing per raised shield.</b> The server handles hits in order, so once the axe hit is
  * sent, anything after it lands on a lowered shield, even before the client sees it lower. The
@@ -37,17 +45,31 @@ import net.minecraft.world.phys.EntityHitResult;
  * server says the break failed (a block sound) or never answers within a round trip, and it stops
  * altogether if the server ignores two in a row.
  *
- * <p>The axe is selected right before the attack is sent, the same order the game uses when you
- * press a hotbar key and click in the same tick, and your slot is restored on the next tick.
+ * <p>Each switch goes out the way the game sends a hotbar key press: at the start of the next tick,
+ * or together with the attack when the axe is picked and used at once (Swap Delay 0). The swap delay
+ * counts from when the switch was sent, so the server sees the axe for that long before the hit.
  */
 public final class ShieldBreaker extends Module {
-    public final BoolSetting automatic = bool("Automatic", "Breaks a raised shield by itself as soon as your crosshair is on it. Off: only when you attack.", true);
-    public final BoolSetting swapBack = bool("Swap Back", "Switch back to what you were holding right after the hit.", true);
+    public final BoolSetting automatic = bool("Automatic", "Breaks a raised shield by itself when your crosshair is on it. Off: only when you attack.", true);
+    public final NumberSetting reactionTime = number("Reaction Time", "How long it waits after a shield comes up before breaking it. Counts from when the shield can block (a quarter second after it's raised).", 100, 0, 1000, 10, "ms")
+        .visibleWhen(automatic::isOn);
+    public final NumberSetting attackDelay = number("Attack Delay", "Waits at least this long after your last hit (yours or TriggerBot's) before breaking, so it doesn't swing again right away.", 250, 0, 1000, 10, "ms")
+        .visibleWhen(automatic::isOn);
+    public final NumberSetting swapDelay = number("Swap Delay", "Ticks between switching to the axe and hitting with it. 1 tick = 50 ms. 0 switches and hits at once.", 1, 0, 10, 1, "t");
+    public final BoolSetting swapBack = bool("Swap Back", "Switch back to what you were holding after the hit.", true);
+    public final NumberSetting swapBackDelay = number("Swap Back Delay", "Ticks between the hit and switching back. 1 tick = 50 ms. At least 2, so the server always counts the switch (the normal game can't switch back any sooner).", 3, 2, 10, 1, "t")
+        .visibleWhen(swapBack::isOn);
 
+    /** How far away a raised shield is timed for Reaction Time. */
+    private static final double TRACK_RANGE = 8.0;
+
+    private final SwapSchedule schedule = new SwapSchedule();
     private int swapBackSlot = -1;
     private int axeSlot = -1;
-    private int swapBackAtTick;
     private LocalPlayer trackedPlayer;
+    private long lastAttackNanos;
+    /** When each nearby player's shield became able to block, by entity id. */
+    private final Int2LongOpenHashMap blockingSince = new Int2LongOpenHashMap();
 
     public ShieldBreaker() {
         super("ShieldBreaker", "Breaks raised shields with an axe from your hotbar, then switches back.", Category.COMBAT);
@@ -60,65 +82,165 @@ public final class ShieldBreaker extends Module {
         clearSwap();
     }
 
+    /** Called for every attack the client sends, including your own clicks and other modules. */
+    public void onAttackSent() {
+        lastAttackNanos = System.nanoTime();
+    }
+
     /**
-     * Called right before every attack, including your own clicks and other modules. If this attack
-     * should break the target's shield and you aren't holding an axe, switches to one first. Any
-     * other attack is made with your weapon, never with the axe we switched to.
+     * Called right before every attack, including your own clicks and other modules. Returns true to
+     * cancel it: the attack was on a raised shield and the axe was only just picked, so the hit
+     * comes after the swap delay instead.
+     *
+     * <p>If this attack should break the target's shield and you aren't holding an axe, switches to
+     * one first. Any other attack is made with your weapon, never with the axe we switched to.
      */
-    public void beforeAttack(Minecraft mc) {
+    public boolean beforeAttack(Minecraft mc) {
         LocalPlayer player = mc.player;
-        if (player == null || !isEnabled()) return;
+        if (player == null || !isEnabled()) return false;
         ShieldTracker shields = Vanguard.get().shieldTracker();
         Player target = mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player p ? p : null;
+        int answerTicks = Latency.answerTicks(mc);
+        int tick = player.tickCount;
+        boolean breakNeeded = target != null && needsBreaking(player, target, shields, answerTicks);
 
-        if (target == null || !needsBreaking(player, target, shields, Latency.answerTicks(mc))) {
-            if (swapBack.isOn()) restoreSlot(player);
-            return;
+        switch (schedule.phase()) {
+            case SWAPPED -> {
+                if (breakNeeded && target.getId() == schedule.targetId()) {
+                    // The hit we switched for: wait out the swap delay, then let it through.
+                    if (!schedule.hitDue(tick, swapDelay.intValue())) return true;
+                    shields.onBreakSent(target.getId());
+                    afterHit(tick);
+                    return false;
+                }
+                // Anything else is made with your weapon.
+                restoreSlot(player);
+            }
+            case HIT -> restoreSlot(player);
+            case IDLE -> {
+            }
         }
 
+        if (!breakNeeded) return false;
+        if (Shields.disablesShields(player.getMainHandItem())) {
+            // Already holding an axe: this attack is the break.
+            shields.onBreakSent(target.getId());
+            return false;
+        }
         Inventory inventory = player.getInventory();
-        if (!Shields.disablesShields(player.getMainHandItem())) {
-            int slot = findAxeSlot(inventory);
-            if (slot < 0) return;
-            if (swapBackSlot < 0) swapBackSlot = inventory.getSelectedSlot();
-            axeSlot = slot;
-            // The attack that follows sends the slot change first, then the hit, so the server sees the axe.
-            inventory.setSelectedSlot(slot);
-            swapBackAtTick = player.tickCount + 1;
-        }
+        int slot = findAxeSlot(inventory);
+        if (slot < 0) return false;
+        swapBackSlot = inventory.getSelectedSlot();
+        axeSlot = slot;
+        inventory.setSelectedSlot(slot);
+        schedule.swapped(target.getId(), tick);
+        if (swapDelay.intValue() > 0) return true;
+        // No delay: the attack that follows sends the slot change first, then the hit.
         shields.onBreakSent(target.getId());
+        afterHit(tick);
+        return false;
+    }
+
+    private void afterHit(int tick) {
+        if (swapBack.isOn()) schedule.hit(tick);
+        else clearSwap();
     }
 
     /** Called every frame from the combat hook: breaks a raised shield under the crosshair. */
     public void onFrame(LocalPlayer player) {
-        if (!isEnabled() || !automatic.isOn()) return;
+        if (!isEnabled()) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.screen != null || mc.gameMode == null || mc.getOverlay() != null) return;
         if (player.isSpectator() || player.isUsingItem() || player.isHandsBusy()) return;
-        if (!Shields.disablesShields(player.getMainHandItem()) && findAxeSlot(player.getInventory()) < 0) return;
 
         ShieldTracker shields = Vanguard.get().shieldTracker();
         int answerTicks = Latency.answerTicks(mc);
+        switch (schedule.phase()) {
+            case SWAPPED -> {
+                hitWhenDue(mc, player, shields, answerTicks);
+                return;
+            }
+            case HIT -> {
+                return;
+            }
+            case IDLE -> {
+            }
+        }
+
+        if (!automatic.isOn()) return;
+        if (!Shields.disablesShields(player.getMainHandItem()) && findAxeSlot(player.getInventory()) < 0) return;
+        long now = System.nanoTime();
+        if (millisSince(lastAttackNanos, now) < attackDelay.get()) return;
+        long reactionNanos = (long) (reactionTime.get() * 1_000_000L);
         // An axe hit uses your normal reach, whatever you're holding now.
         EntityHitResult hit = Crosshair.pick(mc, player, player.entityInteractionRange(),
-            living -> living instanceof Player target && needsBreaking(player, target, shields, answerTicks), true);
+            living -> living instanceof Player target && needsBreaking(player, target, shields, answerTicks)
+                && reacted(target, now, reactionNanos), true);
         if (hit == null) return;
         Crosshair.aimAt(mc, hit);
         ((MinecraftInvoker) mc).vanguard$startAttack();
     }
 
-    /** Called at the end of every client tick: switches back once the hit has gone out. */
+    /** Switched to the axe: hit once the swap delay has passed, or give up if there's nothing left to break. */
+    private void hitWhenDue(Minecraft mc, LocalPlayer player, ShieldTracker shields, int answerTicks) {
+        if (!schedule.hitDue(player.tickCount, swapDelay.intValue())) return;
+        if (player.getInventory().getSelectedSlot() != axeSlot) {
+            // You switched slots yourself: leave it to you.
+            clearSwap();
+            return;
+        }
+        Entity entity = mc.level.getEntity(schedule.targetId());
+        if (!(entity instanceof Player pending) || !needsBreaking(player, pending, shields, answerTicks)) {
+            restoreSlot(player);
+            return;
+        }
+        EntityHitResult hit = Crosshair.pick(mc, player, player.entityInteractionRange(), living -> living == pending, true);
+        if (hit == null) return;
+        Crosshair.aimAt(mc, hit);
+        ((MinecraftInvoker) mc).vanguard$startAttack();
+    }
+
+    /** Called at the end of every client tick: times raised shields and switches back after a hit. */
     public void onClientTick(Minecraft mc) {
         LocalPlayer player = mc.player;
         if (player != trackedPlayer) {
             trackedPlayer = player;
             clearSwap();
+            blockingSince.clear();
             return;
         }
-        if (swapBackSlot >= 0 && player.tickCount >= swapBackAtTick) {
-            if (swapBack.isOn()) restoreSlot(player);
-            clearSwap();
+        if (player == null) return;
+        trackShields(mc, player);
+
+        int tick = player.tickCount;
+        if (mc.gameMode != null && ((MultiPlayerGameModeAccessor) mc.gameMode).vanguard$carriedIndex() == axeSlot) {
+            schedule.sent(tick);
         }
+        if (schedule.swapBackDue(tick, swapBackDelay.intValue())) restoreSlot(player);
+        if (schedule.timedOut(tick, swapDelay.intValue())) restoreSlot(player);
+    }
+
+    /** Notes when each nearby player's shield became able to block, and forgets lowered ones. */
+    private void trackShields(Minecraft mc, LocalPlayer player) {
+        long now = System.nanoTime();
+        IntSet blocking = new IntOpenHashSet();
+        for (Player other : mc.level.players()) {
+            if (other == player || !other.isBlocking() || other.distanceToSqr(player) > TRACK_RANGE * TRACK_RANGE) continue;
+            blocking.add(other.getId());
+            blockingSince.putIfAbsent(other.getId(), now);
+        }
+        blockingSince.keySet().removeIf(id -> !blocking.contains(id));
+    }
+
+    /** The shield has been able to block for at least the reaction time. */
+    private boolean reacted(Player target, long now, long reactionNanos) {
+        if (reactionNanos <= 0) return true;
+        long since = blockingSince.getOrDefault(target.getId(), Long.MAX_VALUE);
+        return since != Long.MAX_VALUE && now - since >= reactionNanos;
+    }
+
+    private static double millisSince(long thenNanos, long nowNanos) {
+        return thenNanos == 0 ? Double.MAX_VALUE : (nowNanos - thenNanos) / 1.0e6;
     }
 
     /**
@@ -147,6 +269,7 @@ public final class ShieldBreaker extends Module {
     private void clearSwap() {
         swapBackSlot = -1;
         axeSlot = -1;
+        schedule.clear();
     }
 
     /**
